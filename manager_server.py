@@ -406,7 +406,18 @@ class ManagerAPI(ContainerAPI):
                 return "Succesfully stopped security manager"
             else:
                 return "Security manager is not running"
-
+        elif command == "start_mitigation":
+            if self.sm_instance is None:
+                return "Security manager is not running"
+            self.sm_instance.mitigation = True
+            return "Succesfully started mitigation"
+        elif command == "stop_mitigation":
+            if self.sm_instance is None:
+                return "Security manager is not running"
+            self.sm_instance.mitigation = False
+            return "Succesfully stopped mitigation"
+        else:
+            return "Unrecognized command"
 
 def signal_handler(sig, frame):
     global api
