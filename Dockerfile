@@ -43,4 +43,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN git clone https://github.com/DIETI-DISTA-IoT/of-core OpenFAIR/
 
 # Command to start the data simulator script when the container is run
-CMD ["python", "wandber.py"]
+CMD ["python", "manager_server.py"]
