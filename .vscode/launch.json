@@ -5,17 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "WANDBER",
+            "name": "MANAGER_SERVER",
             "type": "debugpy",
             "request": "launch",
-            "program": "wandber.py",
+            "program": "manager_server.py",
             "console": "integratedTerminal",
-            "args": [
-                "--logging_level=DEBUG",
-                "--online",
-                "--run_name=debug",
-                "--kafka_topic_update_interval_secs=10"
-            ],
             "justMyCode": false
         },
         {

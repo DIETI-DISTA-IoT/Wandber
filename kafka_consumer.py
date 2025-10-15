@@ -39,7 +39,7 @@ class KafkaConsumer:
         self.consuming_thread.daemon = True
 
         # Thread for periodic resubscription
-        self.resubscribe_interval_seconds = kwargs['kafka_topic_update_interval_secs']
+        self.resubscribe_interval_seconds = int(kwargs['kafka_topic_update_interval_secs'])
         self.resubscription_thread = threading.Thread(target=self.resusbscription_thread_function)
         self.resubscription_thread.daemon = True
 

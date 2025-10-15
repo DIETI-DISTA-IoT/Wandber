@@ -39,5 +39,8 @@ WORKDIR /wandber
 # Install the dependencies specified in the requirements file and other required libraries
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Also add the OpenFAIR package 
+RUN git clone https://github.com/DIETI-DISTA-IoT/of-core OpenFAIR/
+
 # Command to start the data simulator script when the container is run
 CMD ["python", "wandber.py"]
