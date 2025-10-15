@@ -105,7 +105,7 @@ class SecurityManager:
         self.stats_consuming_thread.start()
         self.training_thread.start()
         self.resusbscription_thread.start()
-
+        self.logger.info("Security manager started!")
 
     def get_status_from_dashboard(self, vehicle_name):
         url = f"http://{self.dashboard_endpoint}/vehicle-status"
@@ -128,9 +128,9 @@ class SecurityManager:
 
     def train_model(self, **kwargs):
 
-        batch_size = kwargs.get('batch_size', 32)
-        epoch_size = kwargs.get('epoch_batches', 50)
-        save_model_freq_epochs = kwargs.get('save_model_freq_epochs', 10)
+        batch_size = int(kwargs.get('batch_size'))
+        epoch_size = int(kwargs.get('epoch_size'))
+        save_model_freq_epochs = int(kwargs.get('save_model_freq_epochs'))
 
         while not self.stop_threads:
             batch_feats = None
@@ -198,7 +198,7 @@ class SecurityManager:
                         self.logger.info(f"Saving model after {epoch_counter} epochs as {model_path}.")
                         self.brain.save_model()
 
-            time.sleep(kwargs.get('training_freq_seconds', 1))
+            time.sleep(int(kwargs.get('training_freq_seconds')))
 
 
     def create_consumer(self,**kwargs):
@@ -390,22 +390,22 @@ class ManagerAPI(ContainerAPI):
     def handle_command(self, command, params):
         if command == 'start_wandb':
             self.wandber_instance = Wandber(params)
-            return {"message": f"Executed command: {command}", "params": params}
+            return "Succesfully started wandb"
         elif command == 'stop_wandb':
             if self.wandber_instance is not None:
                 self.wandber_instance.graceful_shutdown()
-                return {"message": f"Executed command: {command}", "params": params}
+                return "Succesfully stopped wandb"
             else:
-                return {"message": f"Not necessary to execute command: {command}", "params": params}
+                return "WandB is not running"
         elif command == 'start_security_manager':
             self.sm_instance = SecurityManager(params)
-            return {"message": f"Executed command: {command}", "params": params}
+            return "Succesfully started security manager"
         elif command == 'stop_security_manager':
             if self.sm_instance is not None:
                 self.sm_instance.graceful_shutdown()
-                return {"message": f"Executed command: {command}", "params": params}
+                return "Succesfully stopped security manager"
             else:
-                return {"message": f"Not necessary to execute command: {command}", "params": params}
+                return "Security manager is not running"
 
 
 def signal_handler(sig, frame):

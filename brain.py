@@ -10,7 +10,7 @@ class Brain:
         self.model = MLP(**kwargs)
         self.model.initialize_weights(kwargs.get('initialization_strategy'))
         optim_class_name = kwargs.get('optimizer', 'Adam')
-        self.optimizer = getattr(optim, optim_class_name)(self.model.parameters(), lr=kwargs.get('learning_rate', 0.001))
+        self.optimizer = getattr(optim, optim_class_name)(self.model.parameters(), lr=float(kwargs.get('learning_rate', 0.001)))
         self.loss_function = nn.BCELoss()
         self.device = torch.device(kwargs.get('device', 'cpu'))
         self.model.to(self.device)
