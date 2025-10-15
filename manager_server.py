@@ -243,7 +243,6 @@ class SecurityManager:
             self.normal_records_received += 1
 
 
-
     def online_classification(self, msg):
         self.brain.model.eval()
         with self.brain.model_lock, torch.no_grad():
@@ -264,7 +263,6 @@ class SecurityManager:
         except json.JSONDecodeError as e:
             self.logger.error(f"Error decoding JSON from response: {e}")
             response_json = {}
-
 
 
     def mitigation_and_rewarding(self, prediction, current_label, vehicle_name):
@@ -366,6 +364,17 @@ class SecurityManager:
         self.logger.debug(f"(re)subscribed to health topics.")
 
 
+    def graceful_shutdown(self):
+        self.stop_threads = True
+        if self.resusbscription_thread:
+            self.resusbscription_thread.join()
+        if self.stats_consuming_thread:
+            self.stats_consuming_thread.join()
+        if self.training_thread:
+            self.training_thread.join()
+        self.logger.info(f"Security manager stopped.")
+
+
 class ManagerAPI(ContainerAPI):
 
     def __init__(self, port: int = 5000):
@@ -391,6 +400,12 @@ class ManagerAPI(ContainerAPI):
         elif command == 'start_security_manager':
             self.sm_instance = SecurityManager(params)
             return {"message": f"Executed command: {command}", "params": params}
+        elif command == 'stop_security_manager':
+            if self.sm_instance is not None:
+                self.sm_instance.graceful_shutdown()
+                return {"message": f"Executed command: {command}", "params": params}
+            else:
+                return {"message": f"Not necessary to execute command: {command}", "params": params}
 
 
 def signal_handler(sig, frame):
