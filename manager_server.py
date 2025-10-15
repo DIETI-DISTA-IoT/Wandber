@@ -4,6 +4,7 @@ from kafka_consumer import KafkaConsumer
 import signal 
 import time
 from OpenFAIR.container_api import ContainerAPI
+from threading import Thread
 
 MANAGER = "MANAGER"
 WANDBER = "WANDBER"
@@ -18,7 +19,6 @@ class Wandber:
         self.logger.setLevel(args['logging_level'].upper())
         self.logger.debug("Initializing wandb")
         self.wandb_mode = ("online" if args['online'] else "disabled")
-        self.alive = True
         wandb.init(
             project=args['project_name'],
             mode=self.wandb_mode,
@@ -31,15 +31,12 @@ class Wandber:
             parent=self,
             kwargs=args
         )
-        
         self.kafka_consumer.start()
-        while self.alive:
-            time.sleep(1)
+    
+
+    def graceful_shutdown(self):
         self.kafka_consumer.stop()
         self.close_wandb()
-
-
-    
 
 
     def push_to_wandb(self, key, value, step=None, commit=True):
@@ -72,14 +69,19 @@ class ManagerAPI(ContainerAPI):
         if command == 'start_wandb':
             self.wandber_instance = Wandber(params)
             return {"message": f"Executed command: {command}", "params": params}
-
+        elif command == 'stop_wandb':
+            if self.wandber_instance is not None:
+                self.wandber_instance.graceful_shutdown()
+                return {"message": f"Executed command: {command}", "params": params}
+            else:
+                return {"message": f"Not necessary to execute command: {command}", "params": params}
     
 def signal_handler(sig, frame):
     global api
 
     print(f"{MANAGER}: Received signal {sig}. Gracefully stopping wandb and its consumer threads.")
     if api.wandber_instance is not None:
-        api.wandber_instance.alive = False
+        api.wandber_instance.graceful_shutdown()
 
 
 def main():
