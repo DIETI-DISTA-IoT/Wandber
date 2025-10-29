@@ -31,7 +31,7 @@ RUN pip install --upgrade typing_extensions
 ARG CACHE_BUST=1
 
 # Clone the repository into the 'wandber' folder
-RUN git clone https://github.com/DIETI-DISTA-IoT/Wandber.git wandber
+RUN git clone https://github.com/DIETI-DISTA-IoT/Wandber.git /wandber
 
 # Set the working directory inside the container
 WORKDIR /wandber
