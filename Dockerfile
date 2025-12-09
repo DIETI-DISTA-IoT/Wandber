@@ -31,7 +31,7 @@ RUN pip install --upgrade typing_extensions
 ARG CACHE_BUST=1
 
 # Clone the repository into the 'wandber' folder
-RUN git clone https://github.com/DIETI-DISTA-IoT/Wandber.git /wandber
+RUN git clone --branch sereBench https://github.com/DIETI-DISTA-IoT/Wandber.git /wandber
 
 # Set the working directory inside the container
 WORKDIR /wandber
@@ -40,7 +40,7 @@ WORKDIR /wandber
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Also add the OpenFAIR package 
-RUN git clone https://github.com/DIETI-DISTA-IoT/of-core OpenFAIR/
+RUN git clone --branch sereBench https://github.com/DIETI-DISTA-IoT/of-core OpenFAIR/
 
 # Command to start the data simulator script when the container is run
 CMD ["python", "manager_server.py"]
