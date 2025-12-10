@@ -6,7 +6,8 @@ import numpy as np
 import wandb
 from matplotlib import pyplot as plt
 from OpenFAIR import EventType
-
+import string
+import random
 
 # Patterns to match different types of Kafka topics
 topics_dict = {
@@ -66,8 +67,13 @@ class KafkaConsumer:
         self.is_running = True
         self.current_topics = set()
         self.retry_delay = 1
+
+        def generate_random_string(length=10):
+            letters = string.ascii_letters + string.digits
+            return ''.join(random.choice(letters) for i in range(length))
+
         configs = {'bootstrap.servers': kwargs['kafka_broker_url'],  # Kafka broker URL
-                        'group.id': kwargs['kafka_consumer_group_id'],  # Consumer group for offset management
+                        'group.id': kwargs['kafka_consumer_group_id']+generate_random_string(7),  # Consumer group for offset management
                         'auto.offset.reset': kwargs['kafka_auto_offset_reset'],  # Start reading messages from the beginning if no offset is present
                         'allow.auto.create.topics': 'true'  # crucial for topic updating
                     }
