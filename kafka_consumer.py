@@ -4,6 +4,9 @@ import json
 import threading
 import numpy as np
 import wandb
+from matplotlib import pyplot as plt
+from OpenFAIR import EventType
+
 
 # Patterns to match different types of Kafka topics
 topics_dict = {
@@ -17,6 +20,44 @@ topics_dict = {
 }
 diagnostics_cluster_labels = np.arange(0, 15).astype(str).tolist()
 anomalies_cluster_labels = np.arange(0, 19).astype(str).tolist()
+
+
+
+def plot_results(Y, all_preds, pca_embed, manifold, task_name):
+
+        _, axes = plt.subplots(1, 3, figsize=(20, 4))
+
+        colors = ['r', 'g', 'b']
+
+        # First subplot
+        ax = axes[0]
+        for eventype in EventType:
+            mask = Y.squeeze() == eventype.value
+            ax.scatter(pca_embed[mask, 0], pca_embed[mask, 1],
+                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
+        ax.set_title(f'Input-Space (2D-PCA) {task_name}')
+        ax.legend()
+
+        # Second subplot
+        ax = axes[1]
+        for eventype in EventType:
+            mask = Y.squeeze() == eventype.value
+            ax.scatter(manifold[mask, 0], manifold[mask, 1],
+                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
+        ax.set_title(f'2D-Representation-Space (labels) {task_name}')
+        ax.legend()
+        
+
+        # Third subplot
+        ax = axes[2]
+        for eventype in EventType:
+            mask = all_preds == eventype.value
+            ax.scatter(manifold[mask, 0], manifold[mask, 1],
+                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
+        ax.set_title(f'Predictions {task_name}')
+        ax.legend()
+        return plt
+
 
 class KafkaConsumer:
     def __init__(self, parent, kwargs):
@@ -128,25 +169,22 @@ class KafkaConsumer:
                     self.parent.logger.debug(f"Processing message from topic {msg.topic()}")
                     if 'statistics' in msg.topic():
                         self.plot_jumping_flag += 1
-                        if self.plot_jumping_flag % 10 == 0:
+                        if "visual_eval_X" in deserialized_data:
                             vehicle_name = msg.topic().split('_')[0]
-                            diagnostics_cluster_percentages = deserialized_data['diagnostics_cluster_percentages']
-                            diagnostics_cluster_data = [[label, val] for (label, val) in zip(diagnostics_cluster_labels, diagnostics_cluster_percentages)]
-                            anomalies_cluster_percentages = deserialized_data['anomalies_cluster_percentages']
-                            anomalies_cluster_data = [[label, val] for (label, val) in zip(anomalies_cluster_labels, anomalies_cluster_percentages)]
-                            diagnostics_table = wandb.Table(data=diagnostics_cluster_data, columns=['cluster', 'percentage'])
-                            anomalies_table = wandb.Table(data=anomalies_cluster_data, columns=['cluster', 'percentage'])
-                            diagnostics_barplot = wandb.plot.bar(diagnostics_table, 'cluster', 'percentage', title=f'{vehicle_name} Diagnostics Cluster Percentages')
-                            anomalies_barplot = wandb.plot.bar(anomalies_table, 'cluster', 'percentage', title=f'{vehicle_name} Anomalies Cluster Percentages')
+                            visual_eval_X = deserialized_data['visual_eval_X']
+                            visual_eval_y = deserialized_data['visual_eval_y']
+                            visual_eval_preds = deserialized_data['visual_eval_preds']
+                            visual_eval_manifold = deserialized_data['visual_eval_manifold']
+                            manifold_plot = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold'))
+                            manifold_plot = wandb.Image(manifold_plot)
                             self.parent.push_to_wandb(
-                                key=f"{vehicle_name}_diagnostics_cluster_percentages",
-                                value=diagnostics_barplot)
-                            self.parent.push_to_wandb(
-                                key=f"{vehicle_name}_anomalies_cluster_percentages",
-                                value=anomalies_barplot)
-                        del deserialized_data['diagnostics_cluster_percentages']
-                        del deserialized_data['anomalies_cluster_percentages']
+                                key=f"{vehicle_name}_manifold_plot",
+                                value=manifold_plot)
+                            
 
+                            
+
+                             
                     self.parent.push_to_wandb(
                         key=msg.topic(), 
                         value=deserialized_data)
