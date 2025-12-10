@@ -175,7 +175,7 @@ class KafkaConsumer:
                             visual_eval_y = deserialized_data['visual_eval_y']
                             visual_eval_preds = deserialized_data['visual_eval_preds']
                             visual_eval_manifold = deserialized_data['visual_eval_manifold']
-                            manifold_plot = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold'))
+                            manifold_plot = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
                             manifold_plot = wandb.Image(manifold_plot)
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
