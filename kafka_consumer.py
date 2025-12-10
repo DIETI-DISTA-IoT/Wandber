@@ -66,7 +66,6 @@ class KafkaConsumer:
         self.is_running = True
         self.current_topics = set()
         self.retry_delay = 1
-        self.plot_jumping_flag = 0
         configs = {'bootstrap.servers': kwargs['kafka_broker_url'],  # Kafka broker URL
                         'group.id': kwargs['kafka_consumer_group_id'],  # Consumer group for offset management
                         'auto.offset.reset': kwargs['kafka_auto_offset_reset'],  # Start reading messages from the beginning if no offset is present
@@ -168,7 +167,6 @@ class KafkaConsumer:
                 if deserialized_data:
                     self.parent.logger.debug(f"Processing message from topic {msg.topic()}")
                     if 'statistics' in msg.topic():
-                        self.plot_jumping_flag += 1
                         if "visual_eval_X" in deserialized_data:
                             vehicle_name = msg.topic().split('_')[0]
                             visual_eval_X = deserialized_data['visual_eval_X']
