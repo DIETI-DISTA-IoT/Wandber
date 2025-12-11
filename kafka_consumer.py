@@ -27,7 +27,7 @@ def decode_array(obj):
 
 def plot_results(Y, all_preds, pca_embed, manifold, task_name):
 
-        _, axes = plt.subplots(1, 3, figsize=(20, 4))
+        fig, axes = plt.subplots(1, 3, figsize=(20, 4))
 
         colors = ['r', 'g', 'b']
 
@@ -58,7 +58,8 @@ def plot_results(Y, all_preds, pca_embed, manifold, task_name):
                     c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
         ax.set_title(f'Predictions {task_name}')
         ax.legend()
-        return plt
+
+        return fig
 
 
 class KafkaConsumer:
@@ -180,11 +181,11 @@ class KafkaConsumer:
                             visual_eval_y = decode_array(deserialized_data['visual_eval_y'])
                             visual_eval_preds = decode_array(deserialized_data['visual_eval_preds'])
                             visual_eval_manifold = decode_array(deserialized_data['visual_eval_manifold'])
-                            manifold_plot = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
-                            manifold_plot = wandb.Image(manifold_plot)
+                            manifold_fig = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
+                            manifold_fig = wandb.Image(manifold_fig)
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
-                                value=manifold_plot)
+                                value=manifold_fig)
                     else:     
                         self.parent.push_to_wandb(
                             key=msg.topic(), 
