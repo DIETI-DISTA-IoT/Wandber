@@ -19,9 +19,10 @@ topics_dict = {
     "dashboard_probes": "DASHBOARD_PROBES",
     "global_metrics": "global_metrics"
 }
-diagnostics_cluster_labels = np.arange(0, 15).astype(str).tolist()
-anomalies_cluster_labels = np.arange(0, 19).astype(str).tolist()
 
+
+def decode_array(obj):
+    return np.frombuffer(bytes.fromhex(obj["data"]), dtype=obj["dtype"]).reshape(obj["shape"])
 
 
 def plot_results(Y, all_preds, pca_embed, manifold, task_name):
@@ -175,23 +176,19 @@ class KafkaConsumer:
                     if 'statistics' in msg.topic():
                         if "visual_eval_X" in deserialized_data:
                             vehicle_name = msg.topic().split('_')[0]
-                            visual_eval_X = deserialized_data['visual_eval_X']
-                            visual_eval_y = deserialized_data['visual_eval_y']
-                            visual_eval_preds = deserialized_data['visual_eval_preds']
-                            visual_eval_manifold = deserialized_data['visual_eval_manifold']
+                            visual_eval_X = decode_array(deserialized_data['visual_eval_X'])
+                            visual_eval_y = decode_array(deserialized_data['visual_eval_y'])
+                            visual_eval_preds = decode_array(deserialized_data['visual_eval_preds'])
+                            visual_eval_manifold = decode_array(deserialized_data['visual_eval_manifold'])
                             manifold_plot = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
                             manifold_plot = wandb.Image(manifold_plot)
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
                                 value=manifold_plot)
-                            
-
-                            
-
-                             
-                    self.parent.push_to_wandb(
-                        key=msg.topic(), 
-                        value=deserialized_data)
+                    else:     
+                        self.parent.push_to_wandb(
+                            key=msg.topic(), 
+                            value=deserialized_data)
                 else:
                     self.parent.logger.warning("Deserialized message is None")
 
