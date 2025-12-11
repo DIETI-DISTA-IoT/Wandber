@@ -186,6 +186,8 @@ class KafkaConsumer:
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
                                 value=manifold_fig)
+                            plt.close(manifold_fig)   # <-- THIS FIXES THE FIGURE LEAK
+
                     else:     
                         self.parent.push_to_wandb(
                             key=msg.topic(), 
