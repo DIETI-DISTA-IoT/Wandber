@@ -165,7 +165,7 @@ class KafkaConsumer:
                         self.parent.logger.debug(f"End of partition reached: {msg.error()}")
                     elif (msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART) and \
                         (msg.error().str().split(': ')[1] in list(topics_dict.values())):
-                            self.parent.logger.info(f"Error in wandber consumer: {msg.error().str()}")
+                            self.parent.logger.info(f"Note: {msg.error().str()}")
                     else:
                         self.parent.logger.error(f"Consumer error: {msg.error()}")
                     continue
@@ -187,11 +187,10 @@ class KafkaConsumer:
                                 key=f"{vehicle_name}_manifold_plot",
                                 value=wandb_manifold_fig)
                             plt.close(manifold_fig)   # <-- THIS FIXES THE FIGURE LEAK
-
-                    else:     
-                        self.parent.push_to_wandb(
-                            key=msg.topic(), 
-                            value=deserialized_data)
+                        else:     
+                            self.parent.push_to_wandb(
+                                key=msg.topic(), 
+                                value=deserialized_data)
                 else:
                     self.parent.logger.warning("Deserialized message is None")
 
