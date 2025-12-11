@@ -182,10 +182,10 @@ class KafkaConsumer:
                             visual_eval_preds = decode_array(deserialized_data['visual_eval_preds'])
                             visual_eval_manifold = decode_array(deserialized_data['visual_eval_manifold'])
                             manifold_fig = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
-                            manifold_fig = wandb.Image(manifold_fig)
+                            wandb_manifold_fig = wandb.Image(manifold_fig)
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
-                                value=manifold_fig)
+                                value=wandb_manifold_fig)
                             plt.close(manifold_fig)   # <-- THIS FIXES THE FIGURE LEAK
 
                     else:     
