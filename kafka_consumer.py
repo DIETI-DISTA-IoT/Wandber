@@ -186,7 +186,15 @@ class KafkaConsumer:
                             self.parent.push_to_wandb(
                                 key=f"{vehicle_name}_manifold_plot",
                                 value=wandb_manifold_fig)
-                            plt.close(manifold_fig)   # <-- THIS FIXES THE FIGURE LEAK
+                            plt.close(manifold_fig)   
+                            self.parent.push_to_wandb(
+                                key=msg.topic(), 
+                                value={
+                                    'adv_eval_accuracy': deserialized_data['adv_eval_accuracy'],
+                                    'adv_eval_precision': deserialized_data['adv_eval_precision'],
+                                    'adv_eval_recall': deserialized_data['adv_eval_recall'],
+                                    'adv_eval_f1': deserialized_data['adv_eval_f1']
+                                })
                         else:     
                             self.parent.push_to_wandb(
                                 key=msg.topic(), 
