@@ -394,11 +394,8 @@ class FederatedLearningManager:
         self.mode = args['mode']
         self.probe_metrics = args['probe_metrics']
         self.aggregation_interval_secs = args['aggregation_interval_seconds']
-        if self.mode == 'SW':
-            self.input_dim = args['input_dim'] + len(self.probe_metrics)
-            self.output_dim = 4
 
-        self.global_model = MLP(input_dim=self.input_dim, output_dim=self.output_dim, **args)
+        self.global_model = MLP(**args)
         self.global_model.initialize_weights(args['initialization_strategy'])
         self.logger.info(f"Global model initialized using {args['initialization_strategy']} initialization.")
 
@@ -410,8 +407,8 @@ class FederatedLearningManager:
         self.global_metrics_reporter = GlobalMetricsReporter(self.logger, **args)
 
         self.eval_feats, self.eval_labels = self.load_eval_df(**args)
-        self.logger.info(f"Starting FL with {len(self.vehicle_weights_topics)} in {self.mode} mode" + \
-                         f" for vehicles: {self.vehicle_weights_topics}, probing metrics: {self.probe_metrics}")
+        self.logger.info(f"Starting FL with {len(self.vehicle_weights_topics)}" + \
+                         f" for vehicles: {self.vehicle_weights_topics}")
         self.stop_threads = False
 
         self.consuming_thread = threading.Thread(
@@ -443,8 +440,7 @@ class FederatedLearningManager:
         while not self.stop_threads:
             time.sleep(kwargs.get('aggregation_interval_secs'))
             self.aggregate_weights(**kwargs)
-            if self.mode == 'OF':
-                self.evaluate_new_model()
+            # self.evaluate_new_model()
 
 
     def evaluate_new_model(self):
