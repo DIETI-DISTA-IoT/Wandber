@@ -391,8 +391,6 @@ class FederatedLearningManager:
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=str(args['logging_level']).upper())
         self.logger = logging.getLogger(FEDERATED_LEARNING)
         self.logger.debug("Initializing federated learning manager")
-        self.mode = args['mode']
-        self.probe_metrics = args['probe_metrics']
         self.aggregation_interval_secs = args['aggregation_interval_seconds']
 
         self.global_model = MLP(**args)
