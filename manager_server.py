@@ -390,8 +390,8 @@ class FederatedLearningManager:
     def __init__(self, args):
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=str(args['logging_level']).upper())
         self.logger = logging.getLogger(FEDERATED_LEARNING)
-        self.logger.debug("Initializing federated learning manager")
-        self.aggregation_interval_secs = args['aggregation_interval_seconds']
+        self.logger.info("Initializing federated learning manager")
+        self.aggregation_interval_secs = args['aggregation_interval_secs']
 
         self.global_model = MLP(**args)
         self.global_model.initialize_weights(args['initialization_strategy'])
@@ -404,7 +404,7 @@ class FederatedLearningManager:
         self.weights_reporter = WeightsReporter(self.logger, **args)
         self.global_metrics_reporter = GlobalMetricsReporter(self.logger, **args)
 
-        self.eval_feats, self.eval_labels = self.load_eval_df(**args)
+        # self.eval_feats, self.eval_labels = self.load_eval_df(**args)
         self.logger.info(f"Starting FL with {len(self.vehicle_weights_topics)}" + \
                          f" for vehicles: {self.vehicle_weights_topics}")
         self.stop_threads = False
