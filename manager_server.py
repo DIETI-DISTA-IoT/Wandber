@@ -524,7 +524,7 @@ class FederatedLearningManager:
 
         # check if we have at least one element in each buffer:
         if all([len(buffer) > 0 for buffer in self.weights_buffer.values()]):
-            self.logger.debug(f"Aggregating the weights from {len(self.weights_buffer)} vehicles.")
+            self.logger.info(f"Aggregating the weights from {len(self.weights_buffer)} vehicles.")
             aggregation_function = aggregation_functions[kwargs.get('aggregation_strategy')]
 
             for buffer in self.weights_buffer.values():
@@ -553,7 +553,7 @@ class FederatedLearningManager:
             self.global_model.load_state_dict(aggregated_state_dict)
             self.weights_reporter.push_weights(self.global_model.state_dict())
         else:
-            self.logger.debug(f"Waiting for more data to aggregate the weights.")
+            self.logger.info(f"Waiting for more data to aggregate the weights.")
 
 
 
