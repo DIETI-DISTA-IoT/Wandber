@@ -110,3 +110,22 @@ def fed_median(global_model_state_dict, participant_models_state_dicts, **kwargs
         aggregated[key] = torch.median(stacked, dim=0).values
 
     return aggregated
+
+
+def fed_prox(global_model_state_dict, participant_models_state_dicts, **kwargs):
+    """
+    FedProx server-side aggregation (Li et al., 2020).
+
+    The server aggregation step is identical to FedAvg.  The FedProx
+    contribution lives entirely on the client: each participant adds a
+    proximal penalty  μ/2 * ||w - w_global||²  to its local loss, which
+    limits how far local updates drift from the last global model.  This
+    makes training stable under heterogeneous data distributions and with
+    stragglers that complete fewer local steps.
+
+    The proximal term is applied in consumer/brain.py.  The `fedprox_mu`
+    coefficient is configured per-vehicle via the dashboard config and
+    passed to the Brain at startup.  Set fedprox_mu=0 to recover plain
+    FedAvg behaviour without restarting.
+    """
+    return federated_averaging(global_model_state_dict, participant_models_state_dicts)

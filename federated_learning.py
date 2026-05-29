@@ -4,7 +4,7 @@ import threading
 import json
 from confluent_kafka import Consumer, KafkaError
 from confluent_kafka.admin import AdminClient
-from aggregation import federated_averaging, FedYogi, fed_median
+from aggregation import federated_averaging, FedYogi, fed_median, fed_prox
 import pickle
 from modules import MLP
 from preprocessing import GenericBuffer
@@ -26,7 +26,7 @@ aggregation_functions = {
     "fedavg": federated_averaging,
     "fedyogi": _fed_yogi_instance,
     "fedmedian": fed_median,
-    "fedprox": None,
+    "fedprox": fed_prox,
     "fedsgd": None,
 }
 
@@ -266,7 +266,7 @@ def main():
     parser.add_argument('--kafka_auto_offset_reset', type=str, default='earliest', help='Start reading messages from the beginning if no offset is present')
     parser.add_argument('--kafka_topic_update_interval_secs', type=int, default=30, help='Topic update interval for the kafka reader')
     parser.add_argument('--initialization_strategy', type=str, default="xavier", help='Initialization strategy for global model')
-    parser.add_argument('--aggregation_strategy', type=str, default="fedavg", help='Aggregation strategy for FL (fedavg, fedyogi, fedmedian)')
+    parser.add_argument('--aggregation_strategy', type=str, default="fedavg", help='Aggregation strategy for FL (fedavg, fedyogi, fedmedian, fedprox)')
     parser.add_argument('--weights_buffer_size', type=int, default=3, help='Size of the buffer for weights')
     parser.add_argument('--aggregation_interval_secs', type=int, default=30, help='Aggregation interval in seconds')
     parser.add_argument('--input_dim', type=int, default=59, help='Input dimension of the model')
