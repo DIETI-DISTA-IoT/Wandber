@@ -20,7 +20,7 @@ import json
 import requests
 from modules import MLP
 from reporting import WeightsReporter, GlobalMetricsReporter
-from aggregation import federated_averaging, fed_yogi
+from aggregation import federated_averaging, FedYogi
 import sys
 
 MANAGER = "MANAGER"
