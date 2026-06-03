@@ -18,29 +18,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Upgrade pip to the latest version
 RUN pip install --no-cache-dir --upgrade pip
 
+# Full rebuild bust: pass CACHE_BUST=<timestamp> to re-run pip install AND code clone.
+# Used by:  make build-wandber-scache
+ARG CACHE_BUST=1
+
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/cpu
-    
-# We are actually working with confluent_Kafka version 2.6.1. 
-# RUN pip install --no-cache-dir \
-# confluent_Kafka
 
 # Python 3.13 requires this to be compatible with pytorch
 RUN pip install --upgrade typing_extensions
 
-ARG CACHE_BUST=1
+# Install dependencies from the build context (submodule checkout on disk).
+# This layer is cached when using scache-nolib; re-run only when using scache.
+COPY wandber/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Clone the repository into the 'wandber' folder
+# Code-only bust: pass CODE_BUST=<timestamp> to re-run only the git clones, keeping pip cached.
+# Used by:  make build-wandber-scache-nolib
+ARG CODE_BUST=1
+
 RUN git clone --branch sereBench https://github.com/DIETI-DISTA-IoT/Wandber.git /wandber
 
-# Set the working directory inside the container
 WORKDIR /wandber
 
-# Install the dependencies specified in the requirements file and other required libraries
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Also add the OpenFAIR package 
 RUN git clone --branch sereBench https://github.com/DIETI-DISTA-IoT/of-core OpenFAIR/
 
-# Command to start the data simulator script when the container is run
 CMD ["python", "manager_server.py"]
