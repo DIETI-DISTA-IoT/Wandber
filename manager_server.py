@@ -44,20 +44,20 @@ class Wandber:
     def __init__(self, args):
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=str(args['logging_level']).upper())
         self.logger = logging.getLogger(WANDBER)
-        self.logger.setLevel(args['logging_level'].upper())
+        self.logger.setLevel(args['wandb']['logging_level'].upper())
         self.logger.debug("Initializing wandb")
-        self.wandb_mode = ("online" if args['online'] else "disabled")
+        self.wandb_mode = ("online" if args['wandb']['online'] else "disabled")
         wandb.init(
-            project=args['project_name'],
+            project=args['wandb']['project_name'],
             mode=self.wandb_mode,
-            name=args['run_name'],
+            name=args['wandb']['run_name'],
             config=args
         )
         self.logger.debug(f"Wandb initialized in {self.wandb_mode} mode")
         self.step = 0
         self.kafka_consumer = KafkaConsumer(
             parent=self,
-            kwargs=args
+            kwargs=args['wandb']
         )
         self.kafka_consumer.start()
     
