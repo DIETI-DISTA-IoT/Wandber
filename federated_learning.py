@@ -4,7 +4,7 @@ import threading
 import json
 from confluent_kafka import Consumer, KafkaError
 from confluent_kafka.admin import AdminClient
-from aggregation import federated_averaging, fed_yogi
+from aggregation import federated_averaging, FedYogi, fed_median, fed_prox
 import pickle
 from modules import MLP
 from preprocessing import GenericBuffer
@@ -19,12 +19,16 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 FEDERATED_LEARNING = "fed_learning"
 
+# FedYogi is a stateful class instance so its moment buffers survive across rounds.
+_fed_yogi_instance = FedYogi()
+
 aggregation_functions = {
     "fedavg": federated_averaging,
-    "fedyogi": fed_yogi,
-    "fedprox": None,
-    "fedsgd": None
-    }
+    "fedyogi": _fed_yogi_instance,
+    "fedmedian": fed_median,
+    "fedprox": fed_prox,
+    "fedsgd": None,
+}
 
 
 def create_consumer(**kwargs):
@@ -63,6 +67,9 @@ def deserialize_message(msg):
 def init_global_model(**kwargs):
     initialization_strategy = kwargs.get('initialization_strategy')
     global_model.initialize_weights(initialization_strategy)
+    # Reset FedYogi state when the global model is re-initialised so that
+    # stale moments from a previous run don't corrupt the new one.
+    _fed_yogi_instance.reset()
     logger.info(f"Global model initialized using {initialization_strategy} initialization.")
     
 
@@ -259,7 +266,7 @@ def main():
     parser.add_argument('--kafka_auto_offset_reset', type=str, default='earliest', help='Start reading messages from the beginning if no offset is present')
     parser.add_argument('--kafka_topic_update_interval_secs', type=int, default=30, help='Topic update interval for the kafka reader')
     parser.add_argument('--initialization_strategy', type=str, default="xavier", help='Initialization strategy for global model')
-    parser.add_argument('--aggregation_strategy', type=str, default="fedavg", help='Aggregation strategy for FL')
+    parser.add_argument('--aggregation_strategy', type=str, default="fedavg", help='Aggregation strategy for FL (fedavg, fedyogi, fedmedian, fedprox)')
     parser.add_argument('--weights_buffer_size', type=int, default=3, help='Size of the buffer for weights')
     parser.add_argument('--aggregation_interval_secs', type=int, default=30, help='Aggregation interval in seconds')
     parser.add_argument('--input_dim', type=int, default=59, help='Input dimension of the model')
@@ -270,6 +277,10 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
     parser.add_argument('--mode', type=str, default='OF', help='Mode: OF or SW')
     parser.add_argument('--probe_metrics',  type=parse_str_list, default=['RTT', 'INBOUND', 'OUTBOUND', 'CPU', 'MEM'])
+    parser.add_argument('--learning_rate', type=float, default=0.01, help='Server-side learning rate for adaptive aggregation strategies (fedyogi)')
+    parser.add_argument('--yogi_beta1', type=float, default=0.9, help='FedYogi beta1 (momentum)')
+    parser.add_argument('--yogi_beta2', type=float, default=0.999, help='FedYogi beta2 (adaptive)')
+    parser.add_argument('--yogi_epsilon', type=float, default=1e-3, help='FedYogi epsilon for numerical stability')
 
     args = parser.parse_args()
 
