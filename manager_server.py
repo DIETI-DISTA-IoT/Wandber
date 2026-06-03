@@ -32,7 +32,7 @@ INFECTED = "INFECTED"
 
 aggregation_functions = {
     "fedavg": federated_averaging,
-    "fedyogi": fed_yogi,
+    "fedyogi": FedYogi,
     "fedprox": None,
     "fedsgd": None
     }
