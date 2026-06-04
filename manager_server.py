@@ -38,6 +38,21 @@ aggregation_functions = {
     }
 
 
+def _delete_topics(kafka_broker_url, topics, logger):
+    """Delete a list of Kafka topics, logging each result. Tolerates Kafka being down."""
+    try:
+        admin = AdminClient({'bootstrap.servers': kafka_broker_url})
+        futures = admin.delete_topics(topics, operation_timeout=10)
+        for topic, future in futures.items():
+            try:
+                future.result()
+                logger.info(f"Deleted Kafka topic: {topic}")
+            except Exception as e:
+                logger.warning(f"Could not delete topic {topic} (may not exist or Kafka down): {e}")
+    except Exception as e:
+        logger.warning(f"Topic deletion failed (Kafka may be down): {e}")
+
+
 class Wandber:
 
 
@@ -90,6 +105,7 @@ class SecurityManager:
         self.logger.setLevel(args['logging_level'].upper())
         self.logger.debug("Initializing security manager")
         self.dashboard_endpoint = args['dashboard_endpoint']
+        self.kafka_broker_url = args['kafka_broker_url']
 
         self.health_records_received = 0
         self.victim_records_received = 0
@@ -381,6 +397,7 @@ class SecurityManager:
             self.stats_consuming_thread.join()
         if self.training_thread:
             self.training_thread.join()
+        _delete_topics(self.kafka_broker_url, ["security"], self.logger)
         self.logger.info(f"Security manager stopped.")
 
 
@@ -392,6 +409,7 @@ class FederatedLearningManager:
         self.logger = logging.getLogger(FEDERATED_LEARNING)
         self.logger.info("Initializing federated learning manager")
         self.aggregation_interval_secs = args['aggregation_interval_secs']
+        self.kafka_broker_url = args['kafka_broker_url']
 
         self.global_model = MLP(**args)
         self.global_model.initialize_weights(args['initialization_strategy'])
@@ -431,6 +449,11 @@ class FederatedLearningManager:
             self.consuming_thread.join()
         if self.aggregation_thread:
             self.aggregation_thread.join()
+        _delete_topics(
+            self.kafka_broker_url,
+            ["global_weights", "global_metrics"],
+            self.logger
+        )
         self.logger.info(f"Federated learning manager stopped.")
 
 
@@ -672,4 +695,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
