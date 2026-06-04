@@ -623,7 +623,14 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started wandb"
         elif command == 'stop_wandb':
             if self.wandber_instance is not None:
-                self.wandber_instance.graceful_shutdown()
+                # Run shutdown in background: wandb.finish() can block for many
+                # seconds (uploading data) and would stall the Flask response thread,
+                # causing the dashboard to see RemoteDisconnected.
+                threading.Thread(
+                    target=self.wandber_instance.graceful_shutdown,
+                    daemon=False
+                ).start()
+                self.wandber_instance = None
                 return "Succesfully stopped wandb"
             else:
                 return "WandB is not running"
@@ -632,7 +639,11 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started security manager"
         elif command == 'stop_security_manager':
             if self.sm_instance is not None:
-                self.sm_instance.graceful_shutdown()
+                threading.Thread(
+                    target=self.sm_instance.graceful_shutdown,
+                    daemon=False
+                ).start()
+                self.sm_instance = None
                 return "Succesfully stopped security manager"
             else:
                 return "Security manager is not running"
@@ -654,7 +665,11 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started federated learning"
         elif command == "stop_federated_learning":
             if self.fl_instance is not None:
-                self.fl_instance.graceful_shutdown()
+                threading.Thread(
+                    target=self.fl_instance.graceful_shutdown,
+                    daemon=False
+                ).start()
+                self.fl_instance = None
                 return "Succesfully stopped federated learning"
             else:
                 return "Federated learning is not running"
@@ -677,22 +692,10 @@ def signal_handler(sig, frame):
 
 def main():
     global api
-    """
-    parser = argparse.ArgumentParser(description='Wandb reporter process for Open FAIR.')
-    parser.add_argument('--logging_level', default='INFO' ,type=str, help='Logging level')
-    parser.add_argument('--project_name', type=str, default="OPEN_FAIR", help='Wandb Project name')
-    parser.add_argument('--run_name', type=str, default="Some run", help='Wandb run name')
-    parser.add_argument('--online', action='store_true', help='Send wand metrics to the public wandb cloud')
-    parser.add_argument('--kafka_broker_url', type=str, default='kafka:9092', help='Kafka broker URL')
-    parser.add_argument('--kafka_consumer_group_id', type=str, default=WANDBER, help='Kafka consumer group ID')
-    parser.add_argument('--kafka_auto_offset_reset', type=str, default='earliest', help='Start reading messages from the beginning if no offset is present')
-    parser.add_argument('--kafka_topic_update_interval_secs', type=int, default=30, help='Topic update interval for the kafka reader')
-    args = parser.parse_args()
-    wandber = Wandber(args)
-    """
     api = ManagerAPI()
-    api.run()
     signal.signal(signal.SIGINT, lambda sig, frame: signal_handler(sig, frame))
+    api.run()
+
 
 if __name__ == "__main__":
     main()
