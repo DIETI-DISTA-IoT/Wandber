@@ -66,6 +66,7 @@ class Wandber:
             project=args['wandb']['project_name'],
             mode=self.wandb_mode,
             name=args['wandb']['run_name'],
+            group=args['wandb']['group'],
             config=args
         )
         self.logger.debug(f"Wandb initialized in {self.wandb_mode} mode")
