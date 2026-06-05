@@ -2,6 +2,7 @@ import wandb
 import logging
 import atexit
 import traceback
+import faulthandler
 from kafka_consumer import KafkaConsumer
 import signal 
 from OpenFAIR.container_api import ContainerAPI
@@ -54,10 +55,6 @@ def _delete_topics(kafka_broker_url, topics, logger):
         logger.warning(f"Topic deletion failed (Kafka may be down): {e}")
 
 
-# How long (seconds) we wait for wandb.finish() before giving up.
-# W&B can be slow when uploading large runs; 120 s is generous but finite.
-
-
 class Wandber:
 
 
@@ -91,22 +88,18 @@ class Wandber:
             wandb.finish()
             self.logger.info("graceful_shutdown: wandb.finish() returned normally — no exception.")
         except SystemExit as e:
-            # wandb (especially wandb-core builds) can raise SystemExit during
-            # finish(). We catch it here to log it clearly before it propagates
-            # and kills the Flask process.
             self.logger.error(
                 f"graceful_shutdown: wandb.finish() raised SystemExit(code={e.code}). "
                 "This will cause the container to restart! Stack trace follows."
             )
             self.logger.error(traceback.format_exc())
-            raise  # let it propagate so we see it in container logs
+            raise
         except Exception as e:
             self.logger.error(f"graceful_shutdown: wandb.finish() raised an exception: {e}")
             self.logger.error(traceback.format_exc())
         self.logger.info("graceful_shutdown: complete.")
 
     def push_to_wandb(self, key, value, step=None, commit=True):
-        # self.logger.debug(f"Pushing {key} to wandb")
         wandb.log(
             {key: value},
             step=(step if step is not None else self.step),
@@ -170,7 +163,6 @@ class SecurityManager:
     def resubscribe(self):
         while not self.stop_threads:
             try:
-                # Wait for a certain interval before resubscribing
                 time.sleep(self.resubscribe_interval_seconds)
                 self.subscribe_to_topics('^.*_HEALTH$')
             except Exception as e:
@@ -206,16 +198,12 @@ class SecurityManager:
             if do_train_step:
                 batch_counter += 1
                 batch_preds, loss = self.brain.train_step(batch_feats, batch_labels)
-
-
-                # convert bath_preds to binary using pytorch:
                 batch_preds = (batch_preds > 0.5).float()
                 batch_loss += loss
                 batch_accuracy = accuracy_score(batch_labels, batch_preds)
                 batch_precision = precision_score(batch_labels, batch_preds, zero_division=0)
                 batch_recall = recall_score(batch_labels, batch_preds, zero_division=0)
                 batch_f1 = f1_score(batch_labels, batch_preds, zero_division=0)
-
 
                 epoch_loss += batch_loss
                 epoch_accuracy += batch_accuracy
@@ -256,18 +244,16 @@ class SecurityManager:
         def generate_random_string(length=10):
             letters = string.ascii_letters + string.digits
             return ''.join(random.choice(letters) for i in range(length))
-        # Kafka consumer configuration
         conf_cons = {
-            'bootstrap.servers': kwargs.get('kafka_broker_url'),  # Kafka broker URL
-            'group.id': kwargs.get('kafka_consumer_group_id')+generate_random_string(7),  # Consumer group ID for message offset tracking
-            'auto.offset.reset': kwargs.get('kafka_auto_offset_reset')  # Start reading from the earliest message if no offset is present
+            'bootstrap.servers': kwargs.get('kafka_broker_url'),
+            'group.id': kwargs.get('kafka_consumer_group_id')+generate_random_string(7),
+            'auto.offset.reset': kwargs.get('kafka_auto_offset_reset')
         }
         return Consumer(conf_cons)
 
 
     def deserialize_message(self, msg):
         try:
-            # Decode the message and deserialize it into a Python dictionary
             message_value = json.loads(msg.value().decode('utf-8'))
             self.logger.debug(f"received message from topic [{msg.topic()}]")
             return message_value
@@ -311,19 +297,15 @@ class SecurityManager:
     def mitigation_and_rewarding(self, prediction, current_label, vehicle_name):
         if prediction == 1:
             if prediction == current_label:
-                # True positive.
                 if self.mitigation:
                     self.send_attack_mitigation_request(vehicle_name)
                 self.mitigation_reward += self.true_positive_reward
             else:
-                # False positive
                 self.mitigation_reward += self.false_positive_reward
         else:
             if prediction == current_label:
-                # True negative
                 self.mitigation_reward += self.true_negative_reward
             else:
-                # False negative
                 self.mitigation_reward += self.false_negative_reward
 
 
@@ -378,7 +360,7 @@ class SecurityManager:
 
         try:
             while not self.stop_threads:
-                msg = self.consumer.poll(5.0)  # Poll per 1 secondo
+                msg = self.consumer.poll(5.0)
                 if msg is None:
                     continue
                 if msg.error():
@@ -434,9 +416,6 @@ class FederatedLearningManager:
         self.logger.info(f"Global model initialized using {args['initialization_strategy']} initialization.")
 
         self.admin_client = AdminClient({'bootstrap.servers': args['kafka_broker_url']})
-        # Purge any stale global_weights messages left over from a previous run
-        # before we start consuming or publishing, so non-FL consumers can't
-        # accidentally pick up old aggregated weights.
         _delete_topics(self.kafka_broker_url, ["global_weights"], self.logger)
         self.vehicle_weights_topics = self.check_vehicle_weights_topics(args)
 
@@ -444,7 +423,6 @@ class FederatedLearningManager:
         self.weights_reporter = WeightsReporter(self.logger, **args)
         self.global_metrics_reporter = GlobalMetricsReporter(self.logger, **args)
 
-        # self.eval_feats, self.eval_labels = self.load_eval_df(**args)
         self.logger.info(f"Starting FL with {len(self.vehicle_weights_topics)}" + \
                          f" for vehicles: {self.vehicle_weights_topics}")
         self.stop_threads = False
@@ -459,7 +437,6 @@ class FederatedLearningManager:
         self.consuming_thread.start()
 
         if self.aggregation_interval_secs > 0:
-            # create a thread to aggregate the weights each aggregation_interval_secs:
             self.aggregation_thread = threading.Thread(
                 target=self.aggregate_weights_periodically,
                 kwargs=args)
@@ -467,13 +444,9 @@ class FederatedLearningManager:
 
 
     def graceful_shutdown(self):
-        # Signal threads to stop and wake the aggregation sleep immediately.
         self.stop_threads = True
         self._stop_event.set()
 
-        # Join with timeouts so a stuck thread never blocks forever and we
-        # never call consumer.close() while the aggregation thread is still
-        # touching librdkafka internals (which causes heap corruption).
         join_timeout = max(self.aggregation_interval_secs + 5, 15)
         if self.consuming_thread:
             self.consuming_thread.join(timeout=join_timeout)
@@ -497,13 +470,10 @@ class FederatedLearningManager:
 
     def aggregate_weights_periodically(self, **kwargs):
         while not self.stop_threads:
-            # Use the event so graceful_shutdown() can interrupt the sleep
-            # immediately instead of waiting up to aggregation_interval_secs.
             self._stop_event.wait(timeout=kwargs.get('aggregation_interval_secs'))
             if self.stop_threads:
                 break
             self.aggregate_weights(**kwargs)
-            # self.evaluate_new_model()
 
 
     def evaluate_new_model(self):
@@ -534,7 +504,6 @@ class FederatedLearningManager:
     def consume_weights_data(self, **kwargs):
 
         consumer = self.create_consumer(**kwargs)
-
         consumer.subscribe(self.vehicle_weights_topics)
         self.logger.info(f"will start consuming {self.vehicle_weights_topics}")
 
@@ -564,10 +533,9 @@ class FederatedLearningManager:
 
 
     def create_consumer(self, **kwargs):
-        # Kafka consumer configuration
         conf_cons = {
-            'bootstrap.servers': kwargs.get('kafka_broker_url'),  # Kafka broker URL
-            'group.id': kwargs.get('kafka_consumer_group_id'),  # Consumer group ID
+            'bootstrap.servers': kwargs.get('kafka_broker_url'),
+            'group.id': kwargs.get('kafka_consumer_group_id'),
             'auto.offset.reset': kwargs.get('kafka_auto_offset_reset')
         }
         return Consumer(conf_cons)
@@ -576,7 +544,6 @@ class FederatedLearningManager:
     def deserialize_message(self, msg):
 
         try:
-            # Decode the message and deserialize it into a Python dictionary
             message_value = pickle.loads(msg.value())
             self.logger.debug(f"received message from topic [{msg.topic()}]")
             return message_value
@@ -587,7 +554,6 @@ class FederatedLearningManager:
 
     def aggregate_weights(self, **kwargs):
 
-        # check if we have at least one element in each buffer:
         if all([len(buffer) > 0 for buffer in self.weights_buffer.values()]):
             self.logger.info(f"Aggregating the weights from {len(self.weights_buffer)} vehicles.")
             aggregation_function = aggregation_functions[kwargs.get('aggregation_strategy')]
@@ -596,7 +562,6 @@ class FederatedLearningManager:
                 candidate_state_dict = buffer.get()
                 if any(torch.isnan(param).any() for param in candidate_state_dict.values()):
                     self.logger.error(f"Candidate weights from {buffer.label} contain NaNs. Skipping update.")
-                    # buffer.pop()
                     return
             
             if aggregation_function is federated_averaging:
@@ -608,18 +573,15 @@ class FederatedLearningManager:
                     self.global_model.state_dict(), 
                     [buffer.get() for buffer in self.weights_buffer.values()], **kwargs)
             
-            # Check if the aggregated state dict has no NaNs
             if any(torch.isnan(param).any() for param in aggregated_state_dict.values()):
                 self.logger.error("Aggregated state dict contains NaNs. Skipping update.")
                 return
-            # pop the oldest element from each one of the buffers
             for buffer in self.weights_buffer.values():
                 buffer.pop()
             self.global_model.load_state_dict(aggregated_state_dict)
             self.weights_reporter.push_weights(self.global_model.state_dict())
         else:
             self.logger.info(f"Waiting for more data to aggregate the weights.")
-
 
 
     def process_message(self, topic, msg, **kwargs):
@@ -639,7 +601,6 @@ class FederatedLearningManager:
 
     def check_vehicle_weights_topics(self, args):
         existing_topics = self.admin_client.list_topics(timeout=10).topics.keys()
-        # get all topics ending with "_weights"
         vehicle_topics = [topic for topic in existing_topics if topic.endswith("_weights") and topic != "global_weights"]
         self.logger.debug("Found the following vehicle topics: %s", vehicle_topics)
         return vehicle_topics
@@ -664,12 +625,8 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started wandb"
         elif command == 'stop_wandb':
             if self.wandber_instance is not None:
-                # Grab the instance and clear the reference first so that any
-                # concurrent start_wandb can proceed safely once we return.
                 instance = self.wandber_instance
                 self.wandber_instance = None
-                # Run synchronously — close_wandb() has its own internal
-                # timeout so this will not block forever.
                 instance.graceful_shutdown()
                 return "Succesfully stopped wandb"
             else:
@@ -715,7 +672,6 @@ class ManagerAPI(ContainerAPI):
 
 def signal_handler(sig, frame):
     global api
-
     print(f"{MANAGER}: Received signal {sig}. Gracefully stopping wandb and its consumer threads.", flush=True)
     if api.wandber_instance is not None:
         api.wandber_instance.graceful_shutdown()
@@ -727,9 +683,6 @@ def signal_handler(sig, frame):
 
 
 def _atexit_handler():
-    """Fires whenever the Python interpreter is about to exit — including
-    sys.exit(), SystemExit raised anywhere, and normal program end.
-    Prints a stack trace so we can see exactly who triggered the exit."""
     print("[WANDBER][atexit] Process is exiting. Stack trace at exit time:", flush=True)
     for line in traceback.format_stack():
         print(line, end='', flush=True)
@@ -739,8 +692,8 @@ def main():
     global api
     api = ManagerAPI()
 
-    # Register diagnostics: log whenever the process is about to exit and
-    # whenever SIGTERM arrives (Docker stop sends SIGTERM before SIGKILL).
+    faulthandler.enable()
+
     atexit.register(_atexit_handler)
     signal.signal(signal.SIGTERM, lambda sig, frame: (
         print(f"[WANDBER] SIGTERM received — calling signal_handler.", flush=True),
