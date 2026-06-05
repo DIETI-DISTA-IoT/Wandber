@@ -20,7 +20,7 @@ import json
 import requests
 from modules import MLP
 from reporting import WeightsReporter, GlobalMetricsReporter
-from aggregation import federated_averaging, FedYogi
+from aggregation import federated_averaging, FedYogi, fed_prox
 import sys
 
 MANAGER = "MANAGER"
@@ -33,9 +33,8 @@ INFECTED = "INFECTED"
 aggregation_functions = {
     "fedavg": federated_averaging,
     "fedyogi": FedYogi,
-    "fedprox": None,
-    "fedsgd": None
-    }
+    "fedprox": fed_prox,
+}
 
 
 def _delete_topics(kafka_broker_url, topics, logger):
@@ -454,6 +453,10 @@ class FederatedLearningManager:
         self.logger.info(f"Global model initialized using {args['initialization_strategy']} initialization.")
 
         self.admin_client = AdminClient({'bootstrap.servers': args['kafka_broker_url']})
+        # Purge any stale global_weights messages left over from a previous run
+        # before we start consuming or publishing, so non-FL consumers can't
+        # accidentally pick up old aggregated weights.
+        _delete_topics(self.kafka_broker_url, ["global_weights"], self.logger)
         self.vehicle_weights_topics = self.check_vehicle_weights_topics(args)
 
         self.weights_buffer = self.create_weights_buffer(**args)
