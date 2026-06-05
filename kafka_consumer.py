@@ -102,11 +102,15 @@ class KafkaConsumer:
 
     def stop(self):
         """
-        Gracefully stop the consumer and its threads
+        Gracefully stop the consumer and its threads.
+
+        The consuming thread polls with a 1 s timeout, so we give each
+        join a 5 s budget — enough to let the current poll cycle finish
+        without racing consumer.close().
         """
         self.is_running = False
-        self.consuming_thread.join(1)
-        self.resubscription_thread.join(1)
+        self.consuming_thread.join(5)
+        self.resubscription_thread.join(5)
         self.consumer.close()
 
 
