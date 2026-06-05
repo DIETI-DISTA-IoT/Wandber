@@ -108,10 +108,28 @@ class KafkaConsumer:
         join a 5 s budget — enough to let the current poll cycle finish
         without racing consumer.close().
         """
+        logger = self.parent.logger
+        logger.info("KafkaConsumer stop requested — signalling threads to exit.")
         self.is_running = False
+
         self.consuming_thread.join(5)
+        if self.consuming_thread.is_alive():
+            logger.warning("consuming_thread did not stop within 5 s — proceeding anyway.")
+        else:
+            logger.info("consuming_thread stopped.")
+
         self.resubscription_thread.join(5)
-        self.consumer.close()
+        if self.resubscription_thread.is_alive():
+            logger.warning("resubscription_thread did not stop within 5 s — proceeding anyway.")
+        else:
+            logger.info("resubscription_thread stopped.")
+
+        logger.info("Closing Kafka consumer...")
+        try:
+            self.consumer.close()
+            logger.info("Kafka consumer closed.")
+        except Exception as e:
+            logger.error(f"Error closing Kafka consumer: {e}")
 
 
     def resusbscription_thread_function(self):
