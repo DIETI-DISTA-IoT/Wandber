@@ -1,5 +1,7 @@
 import wandb
 import logging
+import atexit
+import traceback
 from kafka_consumer import KafkaConsumer
 import signal 
 from OpenFAIR.container_api import ContainerAPI
@@ -82,13 +84,26 @@ class Wandber:
     
 
     def graceful_shutdown(self):
+        self.logger.info("graceful_shutdown: stopping Kafka consumer...")
         self.kafka_consumer.stop()
-        self.logger.info("Finishing wandb run...")
+        self.logger.info("graceful_shutdown: Kafka consumer stopped. Calling wandb.finish()...")
         try:
             wandb.finish()
-            self.logger.info("Wandb run closed successfully.")
+            self.logger.info("graceful_shutdown: wandb.finish() returned normally — no exception.")
+        except SystemExit as e:
+            # wandb (especially wandb-core builds) can raise SystemExit during
+            # finish(). We catch it here to log it clearly before it propagates
+            # and kills the Flask process.
+            self.logger.error(
+                f"graceful_shutdown: wandb.finish() raised SystemExit(code={e.code}). "
+                "This will cause the container to restart! Stack trace follows."
+            )
+            self.logger.error(traceback.format_exc())
+            raise  # let it propagate so we see it in container logs
         except Exception as e:
-            self.logger.error(f"wandb.finish() raised an exception: {e}")
+            self.logger.error(f"graceful_shutdown: wandb.finish() raised an exception: {e}")
+            self.logger.error(traceback.format_exc())
+        self.logger.info("graceful_shutdown: complete.")
 
     def push_to_wandb(self, key, value, step=None, commit=True):
         # self.logger.debug(f"Pushing {key} to wandb")
@@ -701,7 +716,7 @@ class ManagerAPI(ContainerAPI):
 def signal_handler(sig, frame):
     global api
 
-    print(f"{MANAGER}: Received signal {sig}. Gracefully stopping wandb and its consumer threads.")
+    print(f"{MANAGER}: Received signal {sig}. Gracefully stopping wandb and its consumer threads.", flush=True)
     if api.wandber_instance is not None:
         api.wandber_instance.graceful_shutdown()
     if api.sm_instance is not None:
@@ -711,10 +726,28 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def _atexit_handler():
+    """Fires whenever the Python interpreter is about to exit — including
+    sys.exit(), SystemExit raised anywhere, and normal program end.
+    Prints a stack trace so we can see exactly who triggered the exit."""
+    print("[WANDBER][atexit] Process is exiting. Stack trace at exit time:", flush=True)
+    for line in traceback.format_stack():
+        print(line, end='', flush=True)
+
+
 def main():
     global api
     api = ManagerAPI()
+
+    # Register diagnostics: log whenever the process is about to exit and
+    # whenever SIGTERM arrives (Docker stop sends SIGTERM before SIGKILL).
+    atexit.register(_atexit_handler)
+    signal.signal(signal.SIGTERM, lambda sig, frame: (
+        print(f"[WANDBER] SIGTERM received — calling signal_handler.", flush=True),
+        signal_handler(sig, frame)
+    ))
     signal.signal(signal.SIGINT, lambda sig, frame: signal_handler(sig, frame))
+
     api.run()
 
 
