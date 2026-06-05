@@ -81,6 +81,7 @@ class KafkaConsumer:
                     }
         
         self.consumer = Consumer(configs)
+        self._consumer_closed = False
         self.resubscribe()
         self.topic_update()
         self.consuming_thread = threading.Thread(target=self.consuming_thread_function)
@@ -127,6 +128,7 @@ class KafkaConsumer:
         logger.info("Closing Kafka consumer...")
         try:
             self.consumer.close()
+            self._consumer_closed = True
             logger.info("Kafka consumer closed.")
         except Exception as e:
             logger.error(f"Error closing Kafka consumer: {e}")
@@ -141,6 +143,7 @@ class KafkaConsumer:
             try:
                 # Wait for a certain interval before resubscribing
                 time.sleep(self.resubscribe_interval_seconds)
+                self.parent.logger.debug("resubscription_thread: woke from sleep, is_running=%s, _consumer_closed=%s", self.is_running, self._consumer_closed)
                 self.topic_update()
             except Exception as e:
                 self.parent.logger.error(f"Error in periodic resubscription: {e}")
@@ -156,7 +159,19 @@ class KafkaConsumer:
 
 
     def topic_update(self):
-        available_topics = set(self.consumer.list_topics().topics.keys())
+        # Diagnostic: detect if this is called after consumer.close()
+        if self._consumer_closed:
+            self.parent.logger.error(
+                "RACE DETECTED: resubscription_thread called topic_update() "
+                "after consumer was already closed. This can cause a segfault."
+            )
+            return
+        self.parent.logger.debug("resubscription_thread: calling list_topics()...")
+        try:
+            available_topics = set(self.consumer.list_topics().topics.keys())
+        except Exception as e:
+            self.parent.logger.error(f"topic_update: list_topics() raised {type(e).__name__}: {e}")
+            return
         new_topics = available_topics - self.current_topics
         self.current_topics = available_topics
         if len(new_topics) > 0:
