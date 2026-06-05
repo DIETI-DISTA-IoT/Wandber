@@ -693,6 +693,16 @@ class ManagerAPI(ContainerAPI):
                 return "Succesfully stopped wandb"
             else:
                 return "WandB is not running"
+        elif command == 'stop_wandber_consumer':
+            # Stop only the Kafka consumer, leaving the wandb run open.
+            # Call this BEFORE stopping the FL manager so there is only one
+            # active rdkafka consumer in the process during FL teardown,
+            # avoiding the concurrent consumer.close() heap corruption.
+            if self.wandber_instance is not None:
+                self.wandber_instance.kafka_consumer.stop()
+                return "Wandber Kafka consumer stopped"
+            else:
+                return "WandB is not running"
         elif command == 'start_security_manager':
             self.sm_instance = SecurityManager(params)
             return "Succesfully started security manager"
