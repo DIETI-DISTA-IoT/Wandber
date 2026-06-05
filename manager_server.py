@@ -53,6 +53,11 @@ def _delete_topics(kafka_broker_url, topics, logger):
         logger.warning(f"Topic deletion failed (Kafka may be down): {e}")
 
 
+# How long (seconds) we wait for wandb.finish() before giving up.
+# W&B can be slow when uploading large runs; 120 s is generous but finite.
+_WANDB_FINISH_TIMEOUT_SECS = 120
+
+
 class Wandber:
 
 
@@ -94,8 +99,40 @@ class Wandber:
 
 
     def close_wandb(self):
-        wandb.finish()
-        self.logger.debug("Wandb closed correctly.")
+        """Finish the wandb run synchronously, waiting at most _WANDB_FINISH_TIMEOUT_SECS.
+
+        wandb.finish() uploads remaining data and can take tens of seconds.
+        We run it in a daemon thread so we can impose a hard timeout: if it
+        does not complete in time we log a warning (the run will appear as
+        'crashed' in W&B and can be resumed/finished manually) and return so
+        the caller is never blocked forever.
+        """
+        self.logger.info(
+            f"Waiting up to {_WANDB_FINISH_TIMEOUT_SECS} s for wandb.finish() ..."
+        )
+
+        finish_exc: list[Exception] = []
+
+        def _finish():
+            try:
+                wandb.finish()
+            except Exception as exc:
+                finish_exc.append(exc)
+
+        t = threading.Thread(target=_finish, daemon=True, name="wandb-finish")
+        t.start()
+        t.join(timeout=_WANDB_FINISH_TIMEOUT_SECS)
+
+        if t.is_alive():
+            self.logger.warning(
+                f"wandb.finish() did not complete within {_WANDB_FINISH_TIMEOUT_SECS} s. "
+                "The W&B run may appear as 'crashed'. "
+                "You can mark it finished manually in the W&B UI before starting the next run."
+            )
+        elif finish_exc:
+            self.logger.error(f"wandb.finish() raised an exception: {finish_exc[0]}")
+        else:
+            self.logger.info("Wandb run closed successfully.")
 
 
 class SecurityManager:
@@ -623,14 +660,13 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started wandb"
         elif command == 'stop_wandb':
             if self.wandber_instance is not None:
-                # Run shutdown in background: wandb.finish() can block for many
-                # seconds (uploading data) and would stall the Flask response thread,
-                # causing the dashboard to see RemoteDisconnected.
-                threading.Thread(
-                    target=self.wandber_instance.graceful_shutdown,
-                    daemon=False
-                ).start()
+                # Grab the instance and clear the reference first so that any
+                # concurrent start_wandb can proceed safely once we return.
+                instance = self.wandber_instance
                 self.wandber_instance = None
+                # Run synchronously — close_wandb() has its own internal
+                # timeout so this will not block forever.
+                instance.graceful_shutdown()
                 return "Succesfully stopped wandb"
             else:
                 return "WandB is not running"
@@ -639,11 +675,9 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started security manager"
         elif command == 'stop_security_manager':
             if self.sm_instance is not None:
-                threading.Thread(
-                    target=self.sm_instance.graceful_shutdown,
-                    daemon=False
-                ).start()
+                instance = self.sm_instance
                 self.sm_instance = None
+                instance.graceful_shutdown()
                 return "Succesfully stopped security manager"
             else:
                 return "Security manager is not running"
@@ -665,11 +699,9 @@ class ManagerAPI(ContainerAPI):
             return "Succesfully started federated learning"
         elif command == "stop_federated_learning":
             if self.fl_instance is not None:
-                threading.Thread(
-                    target=self.fl_instance.graceful_shutdown,
-                    daemon=False
-                ).start()
+                instance = self.fl_instance
                 self.fl_instance = None
+                instance.graceful_shutdown()
                 return "Succesfully stopped federated learning"
             else:
                 return "Federated learning is not running"
