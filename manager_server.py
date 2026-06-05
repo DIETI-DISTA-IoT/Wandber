@@ -467,29 +467,45 @@ class FederatedLearningManager:
         self.logger.info(f"Starting FL with {len(self.vehicle_weights_topics)}" + \
                          f" for vehicles: {self.vehicle_weights_topics}")
         self.stop_threads = False
+        self._stop_event = threading.Event()
 
         self.consuming_thread = threading.Thread(
-            target=self.consume_weights_data, 
-            kwargs=args, 
+            target=self.consume_weights_data,
+            kwargs=args,
             daemon=True
             )
-        
+
         self.consuming_thread.start()
 
         if self.aggregation_interval_secs > 0:
             # create a thread to aggregate the weights each aggregation_interval_secs:
             self.aggregation_thread = threading.Thread(
-                target=self.aggregate_weights_periodically, 
+                target=self.aggregate_weights_periodically,
                 kwargs=args)
             self.aggregation_thread.start()
-    
+
 
     def graceful_shutdown(self):
+        # Signal threads to stop and wake the aggregation sleep immediately.
         self.stop_threads = True
+        self._stop_event.set()
+
+        # Join with timeouts so a stuck thread never blocks forever and we
+        # never call consumer.close() while the aggregation thread is still
+        # touching librdkafka internals (which causes heap corruption).
+        join_timeout = max(self.aggregation_interval_secs + 5, 15)
         if self.consuming_thread:
-            self.consuming_thread.join()
+            self.consuming_thread.join(timeout=join_timeout)
+            if self.consuming_thread.is_alive():
+                self.logger.warning("consuming_thread did not stop within timeout — proceeding.")
+            else:
+                self.logger.info("consuming_thread stopped.")
         if self.aggregation_thread:
-            self.aggregation_thread.join()
+            self.aggregation_thread.join(timeout=join_timeout)
+            if self.aggregation_thread.is_alive():
+                self.logger.warning("aggregation_thread did not stop within timeout — proceeding.")
+            else:
+                self.logger.info("aggregation_thread stopped.")
         _delete_topics(
             self.kafka_broker_url,
             ["global_weights", "global_metrics"],
@@ -500,7 +516,11 @@ class FederatedLearningManager:
 
     def aggregate_weights_periodically(self, **kwargs):
         while not self.stop_threads:
-            time.sleep(kwargs.get('aggregation_interval_secs'))
+            # Use the event so graceful_shutdown() can interrupt the sleep
+            # immediately instead of waiting up to aggregation_interval_secs.
+            self._stop_event.wait(timeout=kwargs.get('aggregation_interval_secs'))
+            if self.stop_threads:
+                break
             self.aggregate_weights(**kwargs)
             # self.evaluate_new_model()
 
