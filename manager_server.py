@@ -54,7 +54,6 @@ def _delete_topics(kafka_broker_url, topics, logger):
 
 # How long (seconds) we wait for wandb.finish() before giving up.
 # W&B can be slow when uploading large runs; 120 s is generous but finite.
-_WANDB_FINISH_TIMEOUT_SECS = 120
 
 
 class Wandber:
@@ -84,54 +83,21 @@ class Wandber:
 
     def graceful_shutdown(self):
         self.kafka_consumer.stop()
-        self.close_wandb()
-
+        self.logger.info("Finishing wandb run...")
+        try:
+            wandb.finish()
+            self.logger.info("Wandb run closed successfully.")
+        except Exception as e:
+            self.logger.error(f"wandb.finish() raised an exception: {e}")
 
     def push_to_wandb(self, key, value, step=None, commit=True):
         # self.logger.debug(f"Pushing {key} to wandb")
         wandb.log(
-            {key: value}, 
-            step=(step if step is not None else self.step), 
+            {key: value},
+            step=(step if step is not None else self.step),
             commit=commit)
         if step is None:
             self.step += 1
-
-
-    def close_wandb(self):
-        """Finish the wandb run synchronously, waiting at most _WANDB_FINISH_TIMEOUT_SECS.
-
-        wandb.finish() uploads remaining data and can take tens of seconds.
-        We run it in a daemon thread so we can impose a hard timeout: if it
-        does not complete in time we log a warning (the run will appear as
-        'crashed' in W&B and can be resumed/finished manually) and return so
-        the caller is never blocked forever.
-        """
-        self.logger.info(
-            f"Waiting up to {_WANDB_FINISH_TIMEOUT_SECS} s for wandb.finish() ..."
-        )
-
-        finish_exc: list[Exception] = []
-
-        def _finish():
-            try:
-                wandb.finish()
-            except Exception as exc:
-                finish_exc.append(exc)
-
-        t = threading.Thread(target=_finish, daemon=True, name="wandb-finish")
-        t.start()
-        t.join(timeout=_WANDB_FINISH_TIMEOUT_SECS)
-
-        if t.is_alive():
-            self.logger.warning(
-                f"wandb.finish() did not complete within {_WANDB_FINISH_TIMEOUT_SECS} s. "
-                "The W&B run may appear as 'crashed'. "
-                "You can mark it finished manually in the W&B UI before starting the next run."
-            )
-        elif finish_exc:
-            self.logger.error(f"wandb.finish() raised an exception: {finish_exc[0]}")
-        else:
-            self.logger.info("Wandb run closed successfully.")
 
 
 class SecurityManager:
