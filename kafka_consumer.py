@@ -69,49 +69,40 @@ class KafkaConsumer:
         self.is_running = True
         self.current_topics = set()
         self.retry_delay = 1
+        self._consumer_closed = False
+        self._stop_event = threading.Event()
 
         def generate_random_string(length=10):
             letters = string.ascii_letters + string.digits
             return ''.join(random.choice(letters) for i in range(length))
 
-        configs = {'bootstrap.servers': kwargs['kafka_broker_url'],  # Kafka broker URL
-                        'group.id': kwargs['kafka_consumer_group_id']+generate_random_string(7),  # Consumer group for offset management
-                        'auto.offset.reset': kwargs['kafka_auto_offset_reset'],  # Start reading messages from the beginning if no offset is present
-                        'allow.auto.create.topics': 'true'  # crucial for topic updating
+        configs = {'bootstrap.servers': kwargs['kafka_broker_url'],
+                        'group.id': kwargs['kafka_consumer_group_id']+generate_random_string(7),
+                        'auto.offset.reset': kwargs['kafka_auto_offset_reset'],
+                        'allow.auto.create.topics': 'true'
                     }
         
         self.consumer = Consumer(configs)
-        self._consumer_closed = False
         self.resubscribe()
         self.topic_update()
         self.consuming_thread = threading.Thread(target=self.consuming_thread_function)
         self.consuming_thread.daemon = True
 
-        # Thread for periodic resubscription
         self.resubscribe_interval_seconds = int(kwargs['kafka_topic_update_interval_secs'])
         self.resubscription_thread = threading.Thread(target=self.resusbscription_thread_function)
         self.resubscription_thread.daemon = True
 
 
     def start(self):
-        """
-        Start both reading and resubscription threads
-        """
         self.consuming_thread.start()
         self.resubscription_thread.start()
 
 
     def stop(self):
-        """
-        Gracefully stop the consumer and its threads.
-
-        The consuming thread polls with a 1 s timeout, so we give each
-        join a 5 s budget — enough to let the current poll cycle finish
-        without racing consumer.close().
-        """
         logger = self.parent.logger
         logger.info("KafkaConsumer stop requested — signalling threads to exit.")
         self.is_running = False
+        self._stop_event.set()  # wake the resubscription thread immediately
 
         self.consuming_thread.join(5)
         if self.consuming_thread.is_alive():
@@ -135,15 +126,12 @@ class KafkaConsumer:
 
 
     def resusbscription_thread_function(self):
-        """
-        Periodically Kafka topics update.
-        This method runs in a separate thread.
-        """
         while self.is_running:
             try:
-                # Wait for a certain interval before resubscribing
-                time.sleep(self.resubscribe_interval_seconds)
-                self.parent.logger.debug("resubscription_thread: woke from sleep, is_running=%s, _consumer_closed=%s", self.is_running, self._consumer_closed)
+                # Interruptible sleep: _stop_event.set() in stop() wakes this
+                # immediately so the thread exits before consumer.close() is called.
+                if self._stop_event.wait(timeout=self.resubscribe_interval_seconds):
+                    break
                 self.topic_update()
             except Exception as e:
                 self.parent.logger.error(f"Error in periodic resubscription: {e}")
@@ -159,14 +147,12 @@ class KafkaConsumer:
 
 
     def topic_update(self):
-        # Diagnostic: detect if this is called after consumer.close()
         if self._consumer_closed:
             self.parent.logger.error(
                 "RACE DETECTED: resubscription_thread called topic_update() "
                 "after consumer was already closed. This can cause a segfault."
             )
             return
-        self.parent.logger.debug("resubscription_thread: calling list_topics()...")
         try:
             available_topics = set(self.consumer.list_topics().topics.keys())
         except Exception as e:
@@ -181,9 +167,7 @@ class KafkaConsumer:
 
     def deserialize_message(self, msg):
         try:
-            # Decode the message value from bytes to string and parse JSON
             message_value = json.loads(msg.value().decode('utf-8'))
-            # self.parent.logger.debug(f"Received message from topic {msg.topic()}")
             return message_value
         except json.JSONDecodeError as e:
             self.parent.logger.error(f"Error deserializing message: {e}")
@@ -194,7 +178,7 @@ class KafkaConsumer:
         
         while self.is_running:
             try:
-                msg = self.consumer.poll(1.0)  # Poll for new messages with a timeout of 1 second
+                msg = self.consumer.poll(1.0)
                 if msg is None:
                     continue
                 if msg.error():
@@ -207,7 +191,6 @@ class KafkaConsumer:
                         self.parent.logger.error(f"Consumer error: {msg.error()}")
                     continue
 
-                # Deserialize the message and process it
                 deserialized_data = self.deserialize_message(msg)
                 if deserialized_data:
                     self.parent.logger.debug(f"Processing message from topic {msg.topic()}")
@@ -239,9 +222,9 @@ class KafkaConsumer:
                 else:
                     self.parent.logger.warning("Deserialized message is None")
 
-                self.retry_delay = 1  # Reset retry delay on success
+                self.retry_delay = 1
             except Exception as e:
                 self.parent.logger.error(f"Error while reading message: {e}")
                 self.parent.logger.debug(f"Retrying in {self.retry_delay} seconds...")
                 time.sleep(self.retry_delay)
-                self.retry_delay = min(self.retry_delay * 2, 60)  # Exponential backoff, max 60 seconds
+                self.retry_delay = min(self.retry_delay * 2, 60)
