@@ -71,6 +71,10 @@ class KafkaConsumer:
         self.retry_delay = 1
         self._consumer_closed = False
         self._stop_event = threading.Event()
+        # confluent_kafka.Consumer (librdkafka) is not thread-safe: poll(), subscribe(),
+        # list_topics() and close() must never run concurrently on the same instance,
+        # or the C client's internal state/heap gets corrupted (SIGABRT/segfault).
+        self._consumer_lock = threading.Lock()
 
         def generate_random_string(length=10):
             letters = string.ascii_letters + string.digits
@@ -118,8 +122,9 @@ class KafkaConsumer:
 
         logger.info("Closing Kafka consumer...")
         try:
-            self.consumer.close()
-            self._consumer_closed = True
+            with self._consumer_lock:
+                self.consumer.close()
+                self._consumer_closed = True
             logger.info("Kafka consumer closed.")
         except Exception as e:
             logger.error(f"Error closing Kafka consumer: {e}")
@@ -139,7 +144,10 @@ class KafkaConsumer:
 
     def resubscribe(self):
         try:
-            self.consumer.subscribe(list(topics_dict.values()))
+            with self._consumer_lock:
+                if self._consumer_closed:
+                    return None
+                self.consumer.subscribe(list(topics_dict.values()))
         except KafkaError as e:
             self.parent.logger.error(f"Error subscribing to topics: {e}")
             return None
@@ -154,7 +162,10 @@ class KafkaConsumer:
             )
             return
         try:
-            available_topics = set(self.consumer.list_topics().topics.keys())
+            with self._consumer_lock:
+                if self._consumer_closed:
+                    return
+                available_topics = set(self.consumer.list_topics().topics.keys())
         except Exception as e:
             self.parent.logger.error(f"topic_update: list_topics() raised {type(e).__name__}: {e}")
             return
@@ -178,7 +189,10 @@ class KafkaConsumer:
         
         while self.is_running:
             try:
-                msg = self.consumer.poll(1.0)
+                with self._consumer_lock:
+                    if self._consumer_closed:
+                        break
+                    msg = self.consumer.poll(1.0)
                 if msg is None:
                     continue
                 if msg.error():
