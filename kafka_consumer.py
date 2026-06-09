@@ -21,8 +21,33 @@ topics_dict = {
 }
 
 
+CLASS_NAMES = ['NORMAL', 'ANOMALY', 'ATTACK']
+
+
 def decode_array(obj):
     return np.frombuffer(bytes.fromhex(obj["data"]), dtype=obj["dtype"]).reshape(obj["shape"])
+
+
+def plot_confusion_matrix(cm, title):
+    """Render a 3×3 confusion matrix as a matplotlib figure."""
+    fig, ax = plt.subplots(figsize=(5, 4))
+    im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
+    fig.colorbar(im, ax=ax)
+    ax.set_xticks([0, 1, 2])
+    ax.set_yticks([0, 1, 2])
+    ax.set_xticklabels(CLASS_NAMES, rotation=45, ha='right')
+    ax.set_yticklabels(CLASS_NAMES)
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('True')
+    ax.set_title(title)
+    thresh = cm.max() / 2.0
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, str(cm[i, j]),
+                    ha='center', va='center',
+                    color='white' if cm[i, j] > thresh else 'black')
+    fig.tight_layout()
+    return fig
 
 
 def plot_results(Y, all_preds, pca_embed, manifold, task_name):
@@ -240,6 +265,14 @@ class KafkaConsumer:
                 key=f"{vehicle_name}_manifold_plot",
                 value=wandb.Image(manifold_fig))
             plt.close(manifold_fig)
+            cm_fig = plot_confusion_matrix(
+                decode_array(data['adv_eval_confusion_matrix']).astype(int),
+                f"{vehicle_name} Gaussian adv eval"
+            )
+            self.parent.push_to_wandb(
+                key=f"{vehicle_name}_adv_eval_confusion_matrix",
+                value=wandb.Image(cm_fig))
+            plt.close(cm_fig)
             self.parent.push_to_wandb(
                 key=topic,
                 value={
@@ -247,6 +280,7 @@ class KafkaConsumer:
                     'adv_eval_precision': data['adv_eval_precision'],
                     'adv_eval_recall':    data['adv_eval_recall'],
                     'adv_eval_f1':        data['adv_eval_f1'],
+                    'adv_eval_macro_f1':  data['adv_eval_macro_f1'],
                 })
 
         elif 'hsja_visual_eval_X' in data:
@@ -269,6 +303,15 @@ class KafkaConsumer:
                 key=f"{vehicle_name}_hsja_manifold_plot",
                 value=wandb.Image(hsja_fig))
             plt.close(hsja_fig)
+            if 'hsja_adv_eval_confusion_matrix' in data:
+                hsja_cm_fig = plot_confusion_matrix(
+                    decode_array(data['hsja_adv_eval_confusion_matrix']).astype(int),
+                    f"{vehicle_name} HSJA adv eval"
+                )
+                self.parent.push_to_wandb(
+                    key=f"{vehicle_name}_hsja_adv_eval_confusion_matrix",
+                    value=wandb.Image(hsja_cm_fig))
+                plt.close(hsja_cm_fig)
             # Scalar metrics: keys use '/' to create a 'hsja_adv_eval' sub-section
             # in the W&B dashboard panel for this vehicle.
             hsja_scalars = {k: v for k, v in data.items() if k.startswith('hsja_adv_eval/')}
@@ -277,4 +320,13 @@ class KafkaConsumer:
 
         else:
             # ── Regular per-epoch training / online monitoring statistics ────────
+            if 'online_confusion_matrix' in data:
+                online_cm_fig = plot_confusion_matrix(
+                    decode_array(data.pop('online_confusion_matrix')).astype(int),
+                    f"{vehicle_name} online monitoring"
+                )
+                self.parent.push_to_wandb(
+                    key=f"{vehicle_name}_online_confusion_matrix",
+                    value=wandb.Image(online_cm_fig))
+                plt.close(online_cm_fig)
             self.parent.push_to_wandb(key=topic, value=data)
