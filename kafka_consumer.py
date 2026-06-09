@@ -4,7 +4,7 @@ import json
 import threading
 import numpy as np
 import wandb
-from matplotlib import pyplot as plt
+import plotly.express as px
 from OpenFAIR import EventType
 import string
 import random
@@ -29,62 +29,42 @@ def decode_array(obj):
 
 
 def plot_confusion_matrix(cm, title):
-    """Render a 3×3 confusion matrix as a matplotlib figure."""
-    fig, ax = plt.subplots(figsize=(5, 4))
-    im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
-    fig.colorbar(im, ax=ax)
-    ax.set_xticks([0, 1, 2])
-    ax.set_yticks([0, 1, 2])
-    ax.set_xticklabels(CLASS_NAMES, rotation=45, ha='right')
-    ax.set_yticklabels(CLASS_NAMES)
-    ax.set_xlabel('Predicted')
-    ax.set_ylabel('True')
-    ax.set_title(title)
-    thresh = cm.max() / 2.0
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, str(cm[i, j]),
-                    ha='center', va='center',
-                    color='white' if cm[i, j] > thresh else 'black')
-    fig.tight_layout()
+    """Interactive Plotly heatmap for a 3×3 confusion matrix."""
+    cm_float = cm.astype(float)
+    fig = px.imshow(
+        cm_float,
+        x=CLASS_NAMES,
+        y=CLASS_NAMES,
+        labels=dict(x='Predicted', y='True', color='Count'),
+        color_continuous_scale='Blues',
+        text_auto='.0f',
+        title=title,
+    )
+    fig.update_xaxes(side='bottom')
     return fig
 
 
+def _scatter_2d(x, y, color_labels, title):
+    """Return a Plotly scatter of 2-D points coloured by string label."""
+    return px.scatter(
+        {'x': x[:, 0], 'y': x[:, 1], 'label': color_labels},
+        x='x', y='y', color='label',
+        opacity=0.4,
+        title=title,
+    )
+
+
 def plot_results(Y, all_preds, pca_embed, manifold, task_name):
+    """Return three interactive Plotly scatter figures (PCA input, manifold labels, manifold preds)."""
+    y_sq = Y.squeeze()
+    label_names = [EventType(int(v)).name for v in y_sq]
+    pred_names  = [EventType(int(v)).name for v in all_preds]
 
-        fig, axes = plt.subplots(1, 3, figsize=(20, 4))
+    fig_pca     = _scatter_2d(pca_embed, y_sq, label_names,  f'Input-Space (2D-PCA) {task_name}')
+    fig_labels  = _scatter_2d(manifold,  y_sq, label_names,  f'2D-Representation-Space (labels) {task_name}')
+    fig_preds   = _scatter_2d(manifold,  y_sq, pred_names,   f'Predictions {task_name}')
 
-        colors = ['r', 'g', 'b']
-
-        # First subplot
-        ax = axes[0]
-        for eventype in EventType:
-            mask = Y.squeeze() == eventype.value
-            ax.scatter(pca_embed[mask, 0], pca_embed[mask, 1],
-                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
-        ax.set_title(f'Input-Space (2D-PCA) {task_name}')
-        ax.legend()
-
-        # Second subplot
-        ax = axes[1]
-        for eventype in EventType:
-            mask = Y.squeeze() == eventype.value
-            ax.scatter(manifold[mask, 0], manifold[mask, 1],
-                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
-        ax.set_title(f'2D-Representation-Space (labels) {task_name}')
-        ax.legend()
-
-
-        # Third subplot
-        ax = axes[2]
-        for eventype in EventType:
-            mask = all_preds == eventype.value
-            ax.scatter(manifold[mask, 0], manifold[mask, 1],
-                    c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
-        ax.set_title(f'Predictions {task_name}')
-        ax.legend()
-
-        return fig
+    return fig_pca, fig_labels, fig_preds
 
 
 class KafkaConsumer:
@@ -251,28 +231,23 @@ class KafkaConsumer:
         vehicle_name = topic.split('_')[0]
 
         if 'visual_eval_X' in data:
-            # ── Gaussian-noise adversarial evaluation (existing) ───────────────────
-            visual_eval_X        = decode_array(data['visual_eval_X'])
-            visual_eval_y        = decode_array(data['visual_eval_y'])
-            visual_eval_preds    = decode_array(data['visual_eval_preds'])
-            visual_eval_manifold = decode_array(data['visual_eval_manifold'])
-            manifold_fig = plot_results(
-                visual_eval_y, visual_eval_preds,
-                visual_eval_X, visual_eval_manifold,
-                vehicle_name + ' manifold'
+            # ── Gaussian-noise adversarial evaluation ─────────────────────────────
+            fig_pca, fig_labels, fig_preds = plot_results(
+                decode_array(data['visual_eval_y']),
+                decode_array(data['visual_eval_preds']),
+                decode_array(data['visual_eval_X']),
+                decode_array(data['visual_eval_manifold']),
+                vehicle_name + ' manifold',
             )
-            self.parent.push_to_wandb(
-                key=f"{vehicle_name}_manifold_plot",
-                value=wandb.Image(manifold_fig))
-            plt.close(manifold_fig)
-            cm_fig = plot_confusion_matrix(
-                decode_array(data['adv_eval_confusion_matrix']).astype(int),
-                f"{vehicle_name} Gaussian adv eval"
-            )
+            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_pca",    value=fig_pca)
+            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_labels", value=fig_labels)
+            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_preds",  value=fig_preds)
             self.parent.push_to_wandb(
                 key=f"{vehicle_name}_adv_eval_confusion_matrix",
-                value=wandb.Image(cm_fig))
-            plt.close(cm_fig)
+                value=plot_confusion_matrix(
+                    decode_array(data['adv_eval_confusion_matrix']).astype(int),
+                    f"{vehicle_name} Gaussian adv eval",
+                ))
             self.parent.push_to_wandb(
                 key=topic,
                 value={
@@ -284,49 +259,39 @@ class KafkaConsumer:
                 })
 
         elif 'hsja_visual_eval_X' in data:
-            # ── HopSkipJump decision-based adversarial evaluation (new) ─────────
+            # ── HopSkipJump decision-based adversarial evaluation ─────────────────
             # Left panel  : PCA of original (clean) feature space.
-            # Centre panel: adversarial examples in manifold space, coloured
-            #               by TRUE label — shows where they started.
-            # Right panel : adversarial examples in manifold space, coloured
-            #               by PREDICTED label — shows boundary crossing.
-            hsja_X        = decode_array(data['hsja_visual_eval_X'])
-            hsja_y        = decode_array(data['hsja_visual_eval_y'])
-            hsja_preds    = decode_array(data['hsja_visual_eval_preds'])
-            hsja_manifold = decode_array(data['hsja_visual_eval_manifold'])
-            hsja_fig = plot_results(
-                hsja_y, hsja_preds,
-                hsja_X, hsja_manifold,
-                vehicle_name + ' HSJA'
+            # Centre panel: adversarial examples in manifold space, coloured by TRUE label.
+            # Right panel : adversarial examples in manifold space, coloured by PREDICTED label.
+            fig_pca, fig_labels, fig_preds = plot_results(
+                decode_array(data['hsja_visual_eval_y']),
+                decode_array(data['hsja_visual_eval_preds']),
+                decode_array(data['hsja_visual_eval_X']),
+                decode_array(data['hsja_visual_eval_manifold']),
+                vehicle_name + ' HSJA',
             )
-            self.parent.push_to_wandb(
-                key=f"{vehicle_name}_hsja_manifold_plot",
-                value=wandb.Image(hsja_fig))
-            plt.close(hsja_fig)
+            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_pca",    value=fig_pca)
+            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_labels", value=fig_labels)
+            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_preds",  value=fig_preds)
             if 'hsja_adv_eval_confusion_matrix' in data:
-                hsja_cm_fig = plot_confusion_matrix(
-                    decode_array(data['hsja_adv_eval_confusion_matrix']).astype(int),
-                    f"{vehicle_name} HSJA adv eval"
-                )
                 self.parent.push_to_wandb(
                     key=f"{vehicle_name}_hsja_adv_eval_confusion_matrix",
-                    value=wandb.Image(hsja_cm_fig))
-                plt.close(hsja_cm_fig)
-            # Scalar metrics: keys use '/' to create a 'hsja_adv_eval' sub-section
-            # in the W&B dashboard panel for this vehicle.
+                    value=plot_confusion_matrix(
+                        decode_array(data['hsja_adv_eval_confusion_matrix']).astype(int),
+                        f"{vehicle_name} HSJA adv eval",
+                    ))
+            # Scalar metrics: '/' creates the 'hsja_adv_eval' sub-section in W&B.
             hsja_scalars = {k: v for k, v in data.items() if k.startswith('hsja_adv_eval/')}
             if hsja_scalars:
                 self.parent.push_to_wandb(key=topic, value=hsja_scalars)
 
         else:
-            # ── Regular per-epoch training / online monitoring statistics ────────
+            # ── Regular per-epoch training / online monitoring statistics ──────────
             if 'online_confusion_matrix' in data:
-                online_cm_fig = plot_confusion_matrix(
-                    decode_array(data.pop('online_confusion_matrix')).astype(int),
-                    f"{vehicle_name} online monitoring"
-                )
                 self.parent.push_to_wandb(
                     key=f"{vehicle_name}_online_confusion_matrix",
-                    value=wandb.Image(online_cm_fig))
-                plt.close(online_cm_fig)
+                    value=plot_confusion_matrix(
+                        decode_array(data.pop('online_confusion_matrix')).astype(int),
+                        f"{vehicle_name} online monitoring",
+                    ))
             self.parent.push_to_wandb(key=topic, value=data)
