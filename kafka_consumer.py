@@ -48,7 +48,7 @@ def plot_results(Y, all_preds, pca_embed, manifold, task_name):
                     c=colors[eventype.value], s=15, alpha=0.1, label=eventype.name)
         ax.set_title(f'2D-Representation-Space (labels) {task_name}')
         ax.legend()
-        
+
 
         # Third subplot
         ax = axes[2]
@@ -85,7 +85,7 @@ class KafkaConsumer:
                         'auto.offset.reset': kwargs['kafka_auto_offset_reset'],
                         'allow.auto.create.topics': 'true'
                     }
-        
+
         self.consumer = Consumer(configs)
         self.resubscribe()
         self.topic_update()
@@ -183,10 +183,10 @@ class KafkaConsumer:
         except json.JSONDecodeError as e:
             self.parent.logger.error(f"Error deserializing message: {e}")
             return None
-    
+
 
     def consuming_thread_function(self):
-        
+
         while self.is_running:
             try:
                 with self._consumer_lock:
@@ -209,30 +209,7 @@ class KafkaConsumer:
                 if deserialized_data:
                     self.parent.logger.debug(f"Processing message from topic {msg.topic()}")
                     if 'statistics' in msg.topic():
-                        if "visual_eval_X" in deserialized_data:
-                            vehicle_name = msg.topic().split('_')[0]
-                            visual_eval_X = decode_array(deserialized_data['visual_eval_X'])
-                            visual_eval_y = decode_array(deserialized_data['visual_eval_y'])
-                            visual_eval_preds = decode_array(deserialized_data['visual_eval_preds'])
-                            visual_eval_manifold = decode_array(deserialized_data['visual_eval_manifold'])
-                            manifold_fig = plot_results(visual_eval_y, visual_eval_preds, visual_eval_X, visual_eval_manifold, vehicle_name+' manifold')
-                            wandb_manifold_fig = wandb.Image(manifold_fig)
-                            self.parent.push_to_wandb(
-                                key=f"{vehicle_name}_manifold_plot",
-                                value=wandb_manifold_fig)
-                            plt.close(manifold_fig)   
-                            self.parent.push_to_wandb(
-                                key=msg.topic(), 
-                                value={
-                                    'adv_eval_accuracy': deserialized_data['adv_eval_accuracy'],
-                                    'adv_eval_precision': deserialized_data['adv_eval_precision'],
-                                    'adv_eval_recall': deserialized_data['adv_eval_recall'],
-                                    'adv_eval_f1': deserialized_data['adv_eval_f1']
-                                })
-                        else:     
-                            self.parent.push_to_wandb(
-                                key=msg.topic(), 
-                                value=deserialized_data)
+                        self._handle_statistics_message(msg.topic(), deserialized_data)
                 else:
                     self.parent.logger.warning("Deserialized message is None")
 
@@ -242,3 +219,62 @@ class KafkaConsumer:
                 self.parent.logger.debug(f"Retrying in {self.retry_delay} seconds...")
                 time.sleep(self.retry_delay)
                 self.retry_delay = min(self.retry_delay * 2, 60)
+
+
+    def _handle_statistics_message(self, topic, data):
+        """Route a statistics-topic message to the appropriate W&B logging path."""
+        vehicle_name = topic.split('_')[0]
+
+        if 'visual_eval_X' in data:
+            # ── Gaussian-noise adversarial evaluation (existing) ───────────────────
+            visual_eval_X        = decode_array(data['visual_eval_X'])
+            visual_eval_y        = decode_array(data['visual_eval_y'])
+            visual_eval_preds    = decode_array(data['visual_eval_preds'])
+            visual_eval_manifold = decode_array(data['visual_eval_manifold'])
+            manifold_fig = plot_results(
+                visual_eval_y, visual_eval_preds,
+                visual_eval_X, visual_eval_manifold,
+                vehicle_name + ' manifold'
+            )
+            self.parent.push_to_wandb(
+                key=f"{vehicle_name}_manifold_plot",
+                value=wandb.Image(manifold_fig))
+            plt.close(manifold_fig)
+            self.parent.push_to_wandb(
+                key=topic,
+                value={
+                    'adv_eval_accuracy':  data['adv_eval_accuracy'],
+                    'adv_eval_precision': data['adv_eval_precision'],
+                    'adv_eval_recall':    data['adv_eval_recall'],
+                    'adv_eval_f1':        data['adv_eval_f1'],
+                })
+
+        elif 'hsja_visual_eval_X' in data:
+            # ── HopSkipJump decision-based adversarial evaluation (new) ─────────
+            # Left panel  : PCA of original (clean) feature space.
+            # Centre panel: adversarial examples in manifold space, coloured
+            #               by TRUE label — shows where they started.
+            # Right panel : adversarial examples in manifold space, coloured
+            #               by PREDICTED label — shows boundary crossing.
+            hsja_X        = decode_array(data['hsja_visual_eval_X'])
+            hsja_y        = decode_array(data['hsja_visual_eval_y'])
+            hsja_preds    = decode_array(data['hsja_visual_eval_preds'])
+            hsja_manifold = decode_array(data['hsja_visual_eval_manifold'])
+            hsja_fig = plot_results(
+                hsja_y, hsja_preds,
+                hsja_X, hsja_manifold,
+                vehicle_name + ' HSJA'
+            )
+            self.parent.push_to_wandb(
+                key=f"{vehicle_name}_hsja_manifold_plot",
+                value=wandb.Image(hsja_fig))
+            plt.close(hsja_fig)
+            # Scalar metrics: keys use '/' to create a 'hsja_adv_eval' sub-section
+            # in the W&B dashboard panel for this vehicle.
+            hsja_scalars = {k: v for k, v in data.items() if k.startswith('hsja_adv_eval/')}
+            if hsja_scalars:
+                self.parent.push_to_wandb(key=topic, value=hsja_scalars)
+
+        else:
+            # ── Regular per-epoch training / online monitoring statistics ────────
+            self.parent.push_to_wandb(key=topic, value=data)
