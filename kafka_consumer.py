@@ -230,24 +230,27 @@ class KafkaConsumer:
         """Route a statistics-topic message to the appropriate W&B logging path."""
         vehicle_name = topic.split('_')[0]
 
-        if 'visual_eval_X' in data:
+        if 'adv_eval_accuracy' in data:
             # ── Gaussian-noise adversarial evaluation ─────────────────────────────
-            fig_pca, fig_labels, fig_preds = plot_results(
-                decode_array(data['visual_eval_y']),
-                decode_array(data['visual_eval_preds']),
-                decode_array(data['visual_eval_X']),
-                decode_array(data['visual_eval_manifold']),
-                vehicle_name + ' manifold',
-            )
-            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_pca",    value=fig_pca)
-            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_labels", value=fig_labels)
-            self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_preds",  value=fig_preds)
-            self.parent.push_to_wandb(
-                key=f"{vehicle_name}_adv_eval_confusion_matrix",
-                value=plot_confusion_matrix(
-                    decode_array(data['adv_eval_confusion_matrix']).astype(int),
-                    f"{vehicle_name} Gaussian adv eval",
-                ))
+            # Plot keys are only present when the producer decided this round
+            # should also include scatter plots / confusion matrices.
+            if 'visual_eval_X' in data:
+                fig_pca, fig_labels, fig_preds = plot_results(
+                    decode_array(data['visual_eval_y']),
+                    decode_array(data['visual_eval_preds']),
+                    decode_array(data['visual_eval_X']),
+                    decode_array(data['visual_eval_manifold']),
+                    vehicle_name + ' manifold',
+                )
+                self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_pca",    value=fig_pca)
+                self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_labels", value=fig_labels)
+                self.parent.push_to_wandb(key=f"{vehicle_name}_manifold_preds",  value=fig_preds)
+                self.parent.push_to_wandb(
+                    key=f"{vehicle_name}_adv_eval_confusion_matrix",
+                    value=plot_confusion_matrix(
+                        decode_array(data['adv_eval_confusion_matrix']).astype(int),
+                        f"{vehicle_name} Gaussian adv eval",
+                    ))
             self.parent.push_to_wandb(
                 key=topic,
                 value={
@@ -258,28 +261,31 @@ class KafkaConsumer:
                     'adv_eval_macro_f1':  data['adv_eval_macro_f1'],
                 })
 
-        elif 'hsja_visual_eval_X' in data:
+        elif any(k.startswith('hsja_adv_eval/') for k in data):
             # ── HopSkipJump decision-based adversarial evaluation ─────────────────
             # Left panel  : PCA of original (clean) feature space.
             # Centre panel: adversarial examples in manifold space, coloured by TRUE label.
             # Right panel : adversarial examples in manifold space, coloured by PREDICTED label.
-            fig_pca, fig_labels, fig_preds = plot_results(
-                decode_array(data['hsja_visual_eval_y']),
-                decode_array(data['hsja_visual_eval_preds']),
-                decode_array(data['hsja_visual_eval_X']),
-                decode_array(data['hsja_visual_eval_manifold']),
-                vehicle_name + ' HSJA',
-            )
-            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_pca",    value=fig_pca)
-            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_labels", value=fig_labels)
-            self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_preds",  value=fig_preds)
-            if 'hsja_adv_eval_confusion_matrix' in data:
-                self.parent.push_to_wandb(
-                    key=f"{vehicle_name}_hsja_adv_eval_confusion_matrix",
-                    value=plot_confusion_matrix(
-                        decode_array(data['hsja_adv_eval_confusion_matrix']).astype(int),
-                        f"{vehicle_name} HSJA adv eval",
-                    ))
+            # Plot keys are only present when the producer decided this round
+            # should also include scatter plots / confusion matrices.
+            if 'hsja_visual_eval_X' in data:
+                fig_pca, fig_labels, fig_preds = plot_results(
+                    decode_array(data['hsja_visual_eval_y']),
+                    decode_array(data['hsja_visual_eval_preds']),
+                    decode_array(data['hsja_visual_eval_X']),
+                    decode_array(data['hsja_visual_eval_manifold']),
+                    vehicle_name + ' HSJA',
+                )
+                self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_pca",    value=fig_pca)
+                self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_labels", value=fig_labels)
+                self.parent.push_to_wandb(key=f"{vehicle_name}_hsja_manifold_preds",  value=fig_preds)
+                if 'hsja_adv_eval_confusion_matrix' in data:
+                    self.parent.push_to_wandb(
+                        key=f"{vehicle_name}_hsja_adv_eval_confusion_matrix",
+                        value=plot_confusion_matrix(
+                            decode_array(data['hsja_adv_eval_confusion_matrix']).astype(int),
+                            f"{vehicle_name} HSJA adv eval",
+                        ))
             # Scalar metrics: '/' creates the 'hsja_adv_eval' sub-section in W&B.
             hsja_scalars = {k: v for k, v in data.items() if k.startswith('hsja_adv_eval/')}
             if hsja_scalars:
